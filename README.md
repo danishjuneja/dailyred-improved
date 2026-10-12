@@ -186,9 +186,10 @@ not the byte-matching `agbcc` build, so it doesn't reproduce the retail ROM.
 `CreateMon`, `CalculateMonStats`):
 
 - **Daily species:** the first five slots follow the Wordle answer in order:
-  `yodel` gives a Y, O, D, E and L Pokémon. The sixth slot is a seeded random
-  legendary or mythical Pokémon. The generator searches for a team with at
-  least 2700 combined base stats; it uses different species for repeated
+  `yodel` gives a Y, O, D, E and L Pokémon. After choosing those five, the
+  generator picks a seeded random legendary or mythical Pokémon for the sixth
+  slot from those that bring the team to at least 2700 combined base stats.
+  It retries the letter picks if none qualify. It uses different species for repeated
   letters when possible, and permits repeats for those letters if needed to
   reach the minimum. If no matching combination can reach 2700, it uses the
   strongest available combination. The word comes from the NYT endpoint at

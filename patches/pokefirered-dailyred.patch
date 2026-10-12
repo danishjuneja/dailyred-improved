@@ -763,10 +763,10 @@ index 0000000..37ee62e
 +};
 diff --git a/src/dailyred_team.c b/src/dailyred_team.c
 new file mode 100644
-index 0000000..e0be26e
+index 0000000..349e88e
 --- /dev/null
 +++ b/src/dailyred_team.c
-@@ -0,0 +1,613 @@
+@@ -0,0 +1,624 @@
 +#include "global.h"
 +#include "dailyred.h"
 +#include "characters.h"
@@ -1051,63 +1051,74 @@ index 0000000..e0be26e
 +    return chosen;
 +}
 +
++// Choose the sixth slot only after the five letter-matched species are known.
++// Every legendary that brings this particular team to the minimum has equal odds.
++static u16 PickQualifyingLegendary(u32 *rng, u32 subtotal)
++{
++    u16 chosen = SPECIES_NONE;
++    u8 i, matches = 0;
++
++    for (i = 0; i < ARRAY_COUNT(sLegendaries); i++)
++    {
++        if (subtotal + GetBaseStatTotal(sLegendaries[i]) < MIN_TEAM_BASE_STAT_TOTAL)
++            continue;
++        matches++;
++        if (TeamRandom(rng) % matches == 0)
++            chosen = sLegendaries[i];
++    }
++    return chosen;
++}
++
 +static void PickWordTeamSpecies(u16 *species, u32 *rng, const u8 *word)
 +{
 +    u16 strongest[DAILYRED_WORD_LENGTH];
-+    u16 viable[ARRAY_COUNT(sLegendaries)];
-+    u32 maximum, total;
-+    u8 viableCount = 0, i;
++    u16 bestLegendary = sLegendaries[0];
++    u32 maximum, subtotal;
++    u8 i;
 +    bool8 allowRepeats = FALSE;
 +    s32 attempt;
 +
++    for (i = 1; i < ARRAY_COUNT(sLegendaries); i++)
++    {
++        if (GetBaseStatTotal(sLegendaries[i]) > GetBaseStatTotal(bestLegendary))
++            bestLegendary = sLegendaries[i];
++    }
 +    if (!PickStrongestWordSpecies(strongest, word, FALSE, &maximum))
 +        maximum = 0;
-+    for (i = 0; i < ARRAY_COUNT(sLegendaries); i++)
-+    {
-+        if (maximum + GetBaseStatTotal(sLegendaries[i]) >= MIN_TEAM_BASE_STAT_TOTAL)
-+            viable[viableCount++] = sLegendaries[i];
-+    }
-+    if (viableCount == 0)
++    if (maximum + GetBaseStatTotal(bestLegendary) < MIN_TEAM_BASE_STAT_TOTAL)
 +    {
 +        allowRepeats = TRUE;
 +        PickStrongestWordSpecies(strongest, word, TRUE, &maximum);
-+        for (i = 0; i < ARRAY_COUNT(sLegendaries); i++)
-+        {
-+            if (maximum + GetBaseStatTotal(sLegendaries[i]) >= MIN_TEAM_BASE_STAT_TOTAL)
-+                viable[viableCount++] = sLegendaries[i];
-+        }
 +    }
 +    // A contrived five-letter input may make 2700 mathematically impossible.
 +    // Keep the game playable with the strongest possible matching team then.
-+    if (viableCount == 0)
++    if (maximum + GetBaseStatTotal(bestLegendary) < MIN_TEAM_BASE_STAT_TOTAL)
 +    {
-+        u16 best = sLegendaries[0];
-+        for (i = 1; i < ARRAY_COUNT(sLegendaries); i++)
-+        {
-+            if (GetBaseStatTotal(sLegendaries[i]) > GetBaseStatTotal(best))
-+                best = sLegendaries[i];
-+        }
 +        memcpy(species, strongest, sizeof(strongest));
-+        species[DAILYRED_WORD_LENGTH] = best;
++        species[DAILYRED_WORD_LENGTH] = bestLegendary;
 +        return;
 +    }
 +
-+    species[DAILYRED_WORD_LENGTH] = viable[TeamRandom(rng) % viableCount];
 +    for (attempt = 0; attempt < MAX_TEAM_ATTEMPTS; attempt++)
 +    {
-+        total = GetBaseStatTotal(species[DAILYRED_WORD_LENGTH]);
++        subtotal = 0;
 +        for (i = 0; i < DAILYRED_WORD_LENGTH; i++)
 +        {
 +            species[i] = PickWordSpecies(rng, word[i], species, i, allowRepeats);
 +            if (species[i] == SPECIES_NONE)
 +                break;
-+            total += GetBaseStatTotal(species[i]);
++            subtotal += GetBaseStatTotal(species[i]);
 +        }
-+        if (i == DAILYRED_WORD_LENGTH && total >= MIN_TEAM_BASE_STAT_TOTAL)
-+            return;
++        if (i == DAILYRED_WORD_LENGTH)
++        {
++            species[DAILYRED_WORD_LENGTH] = PickQualifyingLegendary(rng, subtotal);
++            if (species[DAILYRED_WORD_LENGTH] != SPECIES_NONE)
++                return;
++        }
 +    }
 +    // This is guaranteed to qualify whenever a viable legendary was found.
 +    memcpy(species, strongest, sizeof(strongest));
++    species[DAILYRED_WORD_LENGTH] = PickQualifyingLegendary(rng, maximum);
 +}
 +
 +static void AddCandidateMove(u16 *moves, u8 *count, u16 move)
