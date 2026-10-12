@@ -50,15 +50,15 @@ export async function launchBrowser() {
 // default the game deals a new team after each battle; daily: true plays the
 // website's daily game instead (one battle, starting from wins / battles).
 // The emulator instance is exposed as window.emu.
-export async function bootGame(page, baseUrl, { seed, daily = false, wins = 0, battles = 0, word = 'yodel' } = {}) {
+export async function bootGame(page, baseUrl, { seed, daily = false, wins = 0, battles = 0, word = 'yodel', species = null } = {}) {
   await page.goto(`${baseUrl}/__test__`);
   await page.setContent('<canvas id="screen" width="480" height="320" style="display:block"></canvas>');
-  await page.evaluate(async ({ seed, daily, wins, battles, word }) => {
+  await page.evaluate(async ({ seed, daily, wins, battles, word, species }) => {
     const { Nostalgist } = await import('/vendor/nostalgist.js');
     const { injectConfig } = await import('/rom-config.js');
     const { loadGameFiles } = await import('/game-files.js');
     const files = await loadGameFiles();
-    const rom = seed ? injectConfig(files.rom, { seed, daily, wins, battles, word }) : files.rom;
+    const rom = seed ? injectConfig(files.rom, { seed, daily, wins, battles, word, species }) : files.rom;
     window.emu = await Nostalgist.launch({
       core: 'mgba',
       element: document.getElementById('screen'),
@@ -67,7 +67,7 @@ export async function bootGame(page, baseUrl, { seed, daily = false, wins = 0, b
       resolveCoreWasm: () => files.coreWasm,
       retroarchConfig: { savestate_file_compression: false, savestate_thumbnail_enable: false },
     });
-  }, { seed, daily, wins, battles, word });
+  }, { seed, daily, wins, battles, word, species });
 }
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

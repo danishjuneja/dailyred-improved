@@ -773,10 +773,10 @@ index 0000000..37ee62e
 +};
 diff --git a/src/dailyred_team.c b/src/dailyred_team.c
 new file mode 100644
-index 0000000..b3ca9e1
+index 0000000..259de37
 --- /dev/null
 +++ b/src/dailyred_team.c
-@@ -0,0 +1,640 @@
+@@ -0,0 +1,784 @@
 +#include "global.h"
 +#include "dailyred.h"
 +#include "characters.h"
@@ -788,6 +788,7 @@ index 0000000..b3ca9e1
 +#include "constants/moves.h"
 +#include "constants/region_map_sections.h"
 +#include "constants/species.h"
++#include "constants/battle_move_effects.h"
 +
 +// Random team generator for Daily Red.
 +//
@@ -800,12 +801,9 @@ index 0000000..b3ca9e1
 +//     and the normal 1/8192 shiny chance), random IVs from MIN_TEAM_IV to 31,
 +//     and EVs focused on its two best stats (see AssignFocusedEVs), close to
 +//     RED's perfect IVs and hand-picked EV spreads.
-+//   - Up to 4 different moves picked uniformly from everything the species can
-+//     learn by level-up (at any level) or by TM/HM. If the species has any
-+//     damaging move, at least one of the 4 is damaging.
-+//   - One held item, picked uniformly from sBattleItems plus the type-boosting
-+//     items for the types of its own attacking moves (RED's team holds items
-+//     too).
++//   - Legal, curated builds: dependable attacks first, then compatible support
++//     and coverage. Near-best choices vary only with the shared team seed.
++//   - Held items fit the finished moveset, including species-specific items.
 +//
 +// It draws from its own RNG state instead of the game's Random(), so a given
 +// seed always produces the same sequence of teams regardless of what else in
@@ -842,25 +840,12 @@ index 0000000..b3ca9e1
 +    SPECIES_KYOGRE, SPECIES_GROUDON, SPECIES_RAYQUAZA, SPECIES_JIRACHI, SPECIES_DEOXYS,
 +};
 +
-+// Held items that help any Pokemon in a single battle.
++// Safe general items; conditional items are added only for compatible builds.
 +static const u16 sBattleItems[] =
 +{
 +    ITEM_LEFTOVERS,
-+    ITEM_SHELL_BELL,
-+    ITEM_CHOICE_BAND,
-+    ITEM_QUICK_CLAW,
-+    ITEM_KINGS_ROCK,
-+    ITEM_SCOPE_LENS,
-+    ITEM_BRIGHT_POWDER,
-+    ITEM_FOCUS_BAND,
-+    ITEM_WHITE_HERB,
-+    ITEM_MENTAL_HERB,
 +    ITEM_LUM_BERRY,
 +    ITEM_SITRUS_BERRY,
-+    ITEM_CHESTO_BERRY,
-+    ITEM_LIECHI_BERRY,
-+    ITEM_SALAC_BERRY,
-+    ITEM_PETAYA_BERRY,
 +};
 +
 +// The item that boosts moves of each type by 10%.
@@ -1171,64 +1156,223 @@ index 0000000..b3ca9e1
 +    return gBattleMoves[move].power != 0;
 +}
 +
-+static void AssignRandomMoves(struct Pokemon *mon, u32 *rng)
++// Only attacks usable immediately and repeatedly can fill the dependable
++// slots. Power 1 is an engine sentinel, not necessarily a weak attack.
++static u16 ReliablePower(u16 move)
 +{
-+    u16 moves[MAX_CANDIDATE_MOVES];
-+    u8 count, numMoves, numDamaging, i, j;
-+    u16 temp;
-+
-+    count = GetLearnableMoves(mon, moves);
-+    numMoves = min(count, MAX_MON_MOVES);
-+
-+    // Partial Fisher-Yates shuffle: moves[0..numMoves) becomes a uniformly
-+    // random selection without repeats.
-+    for (i = 0; i < numMoves; i++)
++    const struct BattleMove *info = &gBattleMoves[move];
++    if (info->accuracy != 0 && info->accuracy < 90)
++        return 0;
++    switch (info->effect)
 +    {
-+        j = i + TeamRandom(rng) % (count - i);
-+        SWAP(moves[i], moves[j], temp);
++    case EFFECT_LEVEL_DAMAGE: return 100;
++    case EFFECT_EXPLOSION:
++    case EFFECT_DREAM_EATER:
++    case EFFECT_RECHARGE:
++    case EFFECT_RAZOR_WIND:
++    case EFFECT_SKY_ATTACK:
++    case EFFECT_SKULL_BASH:
++    case EFFECT_SOLAR_BEAM:
++    case EFFECT_SEMI_INVULNERABLE:
++    case EFFECT_FOCUS_PUNCH:
++    case EFFECT_SNORE:
++    case EFFECT_FAKE_OUT:
++    case EFFECT_FALSE_SWIPE:
++    case EFFECT_SPIT_UP:
++    case EFFECT_ERUPTION:
++    case EFFECT_OVERHEAT:
++    case EFFECT_SUPERPOWER:
++    case EFFECT_RAMPAGE:
++    case EFFECT_ROLLOUT:
++        return 0;
 +    }
-+
-+    // If none of the picks can deal damage, swap one of them for a random
-+    // damaging move from the rest of the pool (if there is one).
-+    for (i = 0; i < numMoves && !IsDamagingMove(moves[i]); i++)
-+        ;
-+    if (i == numMoves)
-+    {
-+        numDamaging = 0;
-+        for (j = numMoves; j < count; j++)
-+        {
-+            if (IsDamagingMove(moves[j]))
-+                numDamaging++;
-+        }
-+        if (numDamaging != 0)
-+        {
-+            u8 pick = TeamRandom(rng) % numDamaging;
-+            for (j = numMoves; j < count; j++)
-+            {
-+                if (IsDamagingMove(moves[j]) && pick-- == 0)
-+                    break;
-+            }
-+            i = TeamRandom(rng) % numMoves;
-+            SWAP(moves[i], moves[j], temp);
-+        }
-+    }
-+
-+    for (i = 0; i < MAX_MON_MOVES; i++)
-+        SetMonMoveSlot(mon, i < numMoves ? moves[i] : MOVE_NONE, i);
++    return info->power >= 50 ? info->power : 0;
 +}
 +
-+static void AssignRandomItem(struct Pokemon *mon, u32 *rng)
++static bool8 HasMove(const u16 *moves, u8 count, u16 move)
 +{
-+    u16 items[ARRAY_COUNT(sBattleItems) + MAX_MON_MOVES];
++    return IsSpeciesTaken(move, moves, count);
++}
++
++static bool8 HasAttackCategory(const u16 *moves, u8 count, bool8 physical)
++{
++    u8 i;
++    for (i = 0; i < count; i++)
++        if (gBattleMoves[moves[i]].power > 1
++         && IS_TYPE_PHYSICAL(gBattleMoves[moves[i]].type) == physical)
++            return TRUE;
++    return FALSE;
++}
++
++// A deliberately small support pool, with setup matched to Gen 3's type-based
++// physical/special split. No unpaired Sleep Talk, weather, or random gimmicks.
++static bool8 UsefulSupport(u16 move, const u16 *chosen, u8 count)
++{
++    u8 i;
++    u8 effect = gBattleMoves[move].effect;
++    for (i = 0; i < count; i++)
++    {
++        u8 other = gBattleMoves[chosen[i]].effect;
++        if (gBattleMoves[chosen[i]].power == 0)
++        {
++            // At most one recovery move and one status-inflicting move.
++            if ((effect == EFFECT_RESTORE_HP || effect == EFFECT_SOFTBOILED || effect == EFFECT_REST
++              || effect == EFFECT_MORNING_SUN || effect == EFFECT_MOONLIGHT || effect == EFFECT_SYNTHESIS)
++             && (other == EFFECT_RESTORE_HP || other == EFFECT_SOFTBOILED || other == EFFECT_REST
++              || other == EFFECT_MORNING_SUN || other == EFFECT_MOONLIGHT || other == EFFECT_SYNTHESIS))
++                return FALSE;
++            if ((effect == EFFECT_SLEEP || effect == EFFECT_PARALYZE || effect == EFFECT_TOXIC || effect == EFFECT_WILL_O_WISP)
++             && (other == EFFECT_SLEEP || other == EFFECT_PARALYZE || other == EFFECT_TOXIC || other == EFFECT_WILL_O_WISP))
++                return FALSE;
++        }
++    }
++    switch (move)
++    {
++    case MOVE_RECOVER: case MOVE_SOFT_BOILED: case MOVE_MILK_DRINK:
++    case MOVE_SLACK_OFF: case MOVE_SYNTHESIS: case MOVE_MORNING_SUN:
++    case MOVE_MOONLIGHT: case MOVE_REST:
++    case MOVE_SPORE: case MOVE_SLEEP_POWDER: case MOVE_THUNDER_WAVE:
++    case MOVE_WILL_O_WISP: case MOVE_TOXIC: case MOVE_LEECH_SEED:
++    case MOVE_ENCORE: case MOVE_REFLECT: case MOVE_LIGHT_SCREEN:
++        return TRUE;
++    case MOVE_SWORDS_DANCE: case MOVE_BULK_UP: case MOVE_DRAGON_DANCE:
++        return HasAttackCategory(chosen, count, TRUE);
++    case MOVE_CALM_MIND: case MOVE_TAIL_GLOW:
++        return HasAttackCategory(chosen, count, FALSE);
++    case MOVE_PROTECT:
++        return HasMove(chosen, count, MOVE_TOXIC) || HasMove(chosen, count, MOVE_LEECH_SEED);
++    }
++    return FALSE;
++}
++
++static u32 AttackScore(u16 species, u16 move, const u16 *chosen, u8 count)
++{
++    const struct SpeciesInfo *info = &gSpeciesInfo[species];
++    u16 power = ReliablePower(move);
++    u8 type = gBattleMoves[move].type;
++    u8 i;
++    u32 score;
++    if (!IsDamagingMove(move)) return 0;
++    // Weak/conditional attacks remain available only as fallbacks or extras.
++    if (!power) power = min(gBattleMoves[move].power, 40);
++    score = power * (IS_TYPE_PHYSICAL(type) ? info->baseAttack : info->baseSpAttack);
++    if (gBattleMoves[move].effect == EFFECT_LEVEL_DAMAGE)
++        score = 8000; // Fixed damage does not use Attack, Sp. Atk or STAB.
++    else if (type == info->types[0] || type == info->types[1])
++        score = score * 3 / 2;
++    score = score * (gBattleMoves[move].accuracy ? gBattleMoves[move].accuracy : 100) / 100;
++    for (i = 0; i < count; i++)
++        if (IsDamagingMove(chosen[i]) && gBattleMoves[chosen[i]].type == type)
++            return score / 2;
++    return score;
++}
++
++static u16 PickBuildMove(u16 species, const u16 *pool, u8 size, const u16 *chosen, u8 count, bool8 support, u32 *rng)
++{
++    u32 scores[MAX_CANDIDATE_MOVES] = {0};
++    u32 best = 0;
++    u16 result = MOVE_NONE;
++    u8 i, matches = 0;
++    bool8 reliable = FALSE, coverage = FALSE;
++    // The first two attacks use reliable moves whenever possible. Prefer a
++    // different type for the second, but never force an unusable attack.
++    for (i = 0; i < size; i++)
++        if (!HasMove(chosen, count, pool[i]) && ReliablePower(pool[i]))
++        {
++            reliable = TRUE;
++            if (count == 1 && gBattleMoves[pool[i]].type != gBattleMoves[chosen[0]].type)
++                coverage = TRUE;
++        }
++    for (i = 0; i < size; i++)
++    {
++        u16 move = pool[i];
++        if (HasMove(chosen, count, move)) continue;
++        if (support)
++            scores[i] = UsefulSupport(move, chosen, count) ? 100 : 0;
++        else
++        {
++            if (count < 2 && reliable && !ReliablePower(move)) continue;
++            if (count == 1 && coverage && gBattleMoves[move].type == gBattleMoves[chosen[0]].type) continue;
++            scores[i] = AttackScore(species, move, chosen, count);
++        }
++        if (scores[i] > best) best = scores[i];
++    }
++    // Reservoir sample only near-best choices: variety without weak filler.
++    for (i = 0; i < size; i++)
++        if (scores[i] && scores[i] * 100 >= best * 85)
++            if (TeamRandom(rng) % ++matches == 0) result = pool[i];
++    return result;
++}
++
++static void AssignBuildMoves(struct Pokemon *mon, u32 *rng)
++{
++    u16 pool[MAX_CANDIDATE_MOVES], chosen[MAX_MON_MOVES] = {0};
++    u16 species = GetMonData(mon, MON_DATA_SPECIES);
++    u8 size = GetLearnableMoves(mon, pool);
++    u8 count, i;
++    for (count = 0; count < min(size, MAX_MON_MOVES); count++)
++    {
++        bool8 support = count == 2 || (count == 3 && TeamRandom(rng) % 2 == 0);
++        chosen[count] = PickBuildMove(species, pool, size, chosen, count, support, rng);
++        if (chosen[count] == MOVE_NONE)
++            chosen[count] = PickBuildMove(species, pool, size, chosen, count, !support, rng);
++        // Specialists such as Ditto, Unown and Wobbuffet keep their limited
++        // legal options even when a standard attacking build is impossible.
++        if (chosen[count] == MOVE_NONE)
++            for (i = 0; i < size; i++)
++                if (!HasMove(chosen, count, pool[i]))
++                {
++                    chosen[count] = pool[i];
++                    break;
++                }
++    }
++    for (i = 0; i < MAX_MON_MOVES; i++) SetMonMoveSlot(mon, chosen[i], i);
++}
++
++static void AssignBuildItem(struct Pokemon *mon, u32 *rng)
++{
++    u16 items[ARRAY_COUNT(sBattleItems) + MAX_MON_MOVES + 1];
++    u16 species = GetMonData(mon, MON_DATA_SPECIES);
 +    u8 count = 0;
 +    u8 i, j;
 +    u16 move, item;
++    bool8 allPhysical = TRUE, hasPhysical = FALSE, hasSpecial = FALSE;
++
++    for (i = 0; i < MAX_MON_MOVES; i++)
++    {
++        move = GetMonData(mon, MON_DATA_MOVE1 + i);
++        if (move == MOVE_REST)
++        {
++            item = ITEM_CHESTO_BERRY;
++            SetMonData(mon, MON_DATA_HELD_ITEM, &item);
++            return;
++        }
++        if (gBattleMoves[move].power > 1)
++        {
++            if (IS_TYPE_PHYSICAL(gBattleMoves[move].type)) hasPhysical = TRUE;
++            else hasSpecial = TRUE;
++        }
++        if (move == MOVE_NONE || gBattleMoves[move].power <= 1 || !IS_TYPE_PHYSICAL(gBattleMoves[move].type))
++            allPhysical = FALSE;
++    }
++
++    item = ITEM_NONE;
++    if (species == SPECIES_PIKACHU && hasSpecial) item = ITEM_LIGHT_BALL;
++    if ((species == SPECIES_CUBONE || species == SPECIES_MAROWAK) && hasPhysical) item = ITEM_THICK_CLUB;
++    if ((species == SPECIES_LATIAS || species == SPECIES_LATIOS) && hasSpecial) item = ITEM_SOUL_DEW;
++    if (species == SPECIES_CLAMPERL && hasSpecial) item = ITEM_DEEP_SEA_TOOTH;
++    if (item != ITEM_NONE)
++    {
++        SetMonData(mon, MON_DATA_HELD_ITEM, &item);
++        return;
++    }
 +
 +    for (i = 0; i < ARRAY_COUNT(sBattleItems); i++)
 +        items[count++] = sBattleItems[i];
++    if (allPhysical) items[count++] = ITEM_CHOICE_BAND;
 +
-+    // Type boosters only for types the Pokemon attacks with. Fixed-damage moves
-+    // (power 1, e.g. Seismic Toss or Hidden Power) aren't boosted, so skip them.
++    // Ordinary typed attacks only. Hidden Power needs IV-based type handling,
++    // so it does not qualify for a type booster here.
 +    for (i = 0; i < MAX_MON_MOVES; i++)
 +    {
 +        move = GetMonData(mon, MON_DATA_MOVE1 + i);
@@ -1330,13 +1474,13 @@ index 0000000..b3ca9e1
 +    SetMonData(mon, MON_DATA_MET_LOCATION, &metLocation);
 +
 +    CalculateMonStats(mon);
-+    AssignRandomItem(mon, rng);
++    AssignBuildItem(mon, rng);
 +}
 +
 +static void CreateRandomMon(struct Pokemon *mon, u16 species, u32 *rng)
 +{
 +    CreateTeamMon(mon, species, rng);
-+    AssignRandomMoves(mon, rng);
++    AssignBuildMoves(mon, rng);
 +    FinishTeamMon(mon, rng);
 +}
 +

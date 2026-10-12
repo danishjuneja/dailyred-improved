@@ -240,11 +240,16 @@ not the byte-matching `agbcc` build, so it doesn't reproduce the retail ROM.
   Light Ball doubles its Sp. Atk) and the strongest trainer AI, so he stays
   the favourite.
 
-- **Moves:** up to 4 different moves picked uniformly from everything the
-  species can learn **by level-up (any level) or TM/HM**. One rule on top: if
-  none of the four can deal damage and the species has any damaging move, one
-  pick is swapped for a damaging move. Species with fewer than 4 learnable moves
-  (Ditto, Unown, Magikarp, Smeargle…) get all of them.
+- **Moves:** up to four distinct moves, legal by level-up (any level) or
+  TM/HM. The first two are dependable attacks where available: at least 50
+  power and 90% accuracy (or never-miss), with fixed-damage exceptions such as
+  Seismic Toss. Charging, recharge, self-KO and conditional attacks do not
+  qualify for these slots. The second attack uses another type when possible.
+  Choices favour power, the species' physical/special stats and same-type
+  attack bonus; the daily seed chooses among candidates within 85% of the best
+  score. Remaining slots combine coverage with a curated support pool, including
+  recovery, status and setup matched to the chosen attacks. Limited-learnset
+  species retain legal fallback moves.
 - **Stats:** level 100, random personality (so random nature, gender, ability
   and the usual 1/8192 shiny chance), and trained close to RED's level:
   - **IVs** random from 25 to 31 in every stat (`MIN_TEAM_IV`); RED's are all 31.
@@ -257,24 +262,28 @@ not the byte-matching `agbcc` build, so it doesn't reproduce the retail ROM.
 
   The player is the original trainer, so everything obeys, and Pokémon are
   marked as event Pokémon so Mew and Deoxys obey too.
-- **Held items:** each Pokémon holds one, picked uniformly from a pool of
-  generally useful battle items (`sBattleItems`: Leftovers, Choice Band,
-  Quick Claw, Lum Berry, pinch berries…) plus the 10% type booster for each
-  type it actually attacks with (Charcoal only if it has a Fire attack, and
-  so on). There are still no bag items.
+- **Held items:** Rest gets Chesto Berry. Compatible species get Light Ball,
+  Thick Club, Soul Dew or Deep Sea Tooth when their attacks use the boosted stat.
+  Otherwise the seed chooses from Leftovers, Lum Berry, Sitrus Berry and matching
+  type boosters. Choice Band is eligible only with four physical attacks.
+  There are still no bag items.
 - **Safety:** each Pokémon is validated (level, HP, at least one move, no
   duplicate moves, PP). If a Pokémon somehow failed 10 times, the game would
   use FireRed's own default level-100 moveset for it rather than hand over
   something broken.
 
-Trade-offs in this first version: the move picker ignores move tutors and egg
-moves (add them in `GetLearnableMoves`), and it's deliberately not
-competitive. Splash, Water Sport or three status moves plus one attack are all
-possible. Items are picked without looking at the moveset beyond type
-boosters, so a Choice Band can land on a Pokémon that mostly uses status
-moves, and species-specific items (Light Ball, Thick Club…) aren't in the pool.
-The generator uses its own RNG state, separate from the game's `Random()`, so
-teams depend only on the seed.
+The move picker still excludes tutors and egg moves and is a curated rule-based
+builder, not an imported competitive-set database. Specialist species with very
+limited learnsets cannot always meet the two-attack rule. IVs, nature and abilities
+retain their existing seeded variation.
+
+**Daily determinism is a hard requirement:** for the same calendar date, answer
+and game version, every player gets identical species, moves, held items, IVs,
+EVs, nature and ability. Builds use only the dedicated team RNG, never browser
+randomness, timing, player history or a live moveset service. A new algorithm
+version can change that date's build, so deploy gameplay updates between daily
+rounds when possible. Species selection and the 2700 BST rule are unchanged.
+
 
 ## RED's team
 

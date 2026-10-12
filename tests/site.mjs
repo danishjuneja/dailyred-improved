@@ -134,7 +134,7 @@ try {
   s = await shown(page);
   check(!s.canPlay && s.wins === '1', 'reloading the same day keeps it locked, stats saved');
 
-  // Same team for everyone today: a second browser gets the same Pokemon.
+  // The whole build is shared, including moves and items, regardless of time.
   const other = await browser.newContext();
   await mockWordle(other);
   const otherPage = await other.newPage();
@@ -142,6 +142,10 @@ try {
   await otherPage.goto(server.url);
   await revealAndPlay(otherPage);
   check(JSON.stringify(readParty((await getStatus(otherPage)).mem).party.map((m) => m.species)) === team1, 'everyone gets the same team on the same day');
+  const buildKey = party => JSON.stringify(party.map(({ species, moves, heldItem, ivs, evs, nature, abilityNum }) =>
+    ({ species, moves, heldItem, ivs, evs, nature, abilityNum })));
+  check(buildKey(readParty((await getStatus(otherPage)).mem).party) === buildKey(firstParty),
+    'everyone gets identical moves, items, IVs, EVs, nature and ability throughout the day');
   await other.close();
 
   // Day 2: play again, lose.

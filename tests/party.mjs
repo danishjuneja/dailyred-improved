@@ -249,9 +249,20 @@ export function validateTeam({ count, party }) {
     if (boostType) {
       const attacks = m.moves.filter(Boolean).map((id) => itemRules.moveInfo.get(id));
       if (!attacks.some((info) => info.power > 1 && info.type === boostType)) problems.push(`${tag}: holds a ${boostType} booster without a ${boostType} attack`);
-    } else if (!itemRules.general.has(m.heldItem)) {
+    } else if (!itemRules.general.has(m.heldItem) && ![
+      'CHOICE_BAND', 'CHESTO_BERRY', 'LIGHT_BALL', 'THICK_CLUB', 'SOUL_DEW', 'DEEP_SEA_TOOTH',
+    ].includes(ITEMS.get(m.heldItem))) {
       problems.push(`${tag}: held item ${m.heldItem} isn't in the item pool`);
     }
+    const item = ITEMS.get(m.heldItem);
+    if (item === 'CHOICE_BAND' && !m.moves.every((id) => {
+      const info = itemRules.moveInfo.get(id);
+      return info?.power > 1 && PHYSICAL_TYPES.has(info.type);
+    })) problems.push(`${tag}: Choice Band needs four physical attacks`);
+    if (item === 'CHESTO_BERRY' && !m.moveNames.includes('REST')) problems.push(`${tag}: Chesto Berry without Rest`);
+    const owners = { LIGHT_BALL: ['PIKACHU'], THICK_CLUB: ['CUBONE', 'MAROWAK'],
+      SOUL_DEW: ['LATIAS', 'LATIOS'], DEEP_SEA_TOOTH: ['CLAMPERL'] };
+    if (owners[item] && !owners[item].includes(m.speciesName)) problems.push(`${tag}: wrong species for ${item}`);
     if (!m.fateful) problems.push(`${tag}: not marked as an event Pokemon (Mew/Deoxys would disobey)`);
   }
   return problems;
