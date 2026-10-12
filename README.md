@@ -12,7 +12,8 @@ small set of source changes, built into a GBA ROM and played in the browser
 through the mGBA emulator compiled to WebAssembly. Nothing about battles is
 reimplemented in JavaScript.
 
-- [Quick start (macOS)](#quick-start-macos)
+- [Quick start (Windows, Linux, macOS)](#quick-start-windows-linux-macos)
+- [Build without Docker](#build-without-docker)
 - [How it works](#how-it-works)
 - [Team generation](#team-generation)
 - [RED's team](#reds-team)
@@ -22,9 +23,45 @@ reimplemented in JavaScript.
 - [Copyright and licenses](#copyright-and-licenses)
 - [Known limitations](#known-limitations)
 
-## Quick start (macOS)
+## Quick start (Windows, Linux, macOS)
 
-You need the Xcode Command Line Tools (`xcode-select --install`), Node.js 18+
+Install Docker Desktop or Docker Engine, then run one command from the
+repository root. The script builds the game from the pinned FireRed source,
+downloads the pinned emulator assets, and starts the site; no Xcode tools or
+separate ROM are needed. Later launches reuse Docker's build cache.
+
+```text
+scripts\play.cmd          # Windows Command Prompt or PowerShell
+```
+
+```sh
+bash scripts/play.sh     # macOS or Linux terminal
+```
+
+Open <http://localhost:8080> and press Play. If port 8080 is in use, pass a
+different port: `scripts\play.cmd 3000` or `bash scripts/play.sh 3000`.
+Press Ctrl+C in the terminal to stop the server (on Windows, confirm the batch
+prompt with `Y`). These scripts require Docker to be installed and running;
+they do not change system software. This works on Windows, Linux and macOS with
+Docker's Linux containers enabled. A device visiting a hosted copy needs only a
+modern browser, not Docker. The browser stores each player's stats on that
+device.
+
+If something needed to start the game is missing, the launcher stops and names
+it: an incomplete checkout, Docker, the Docker engine, or Linux-container mode.
+Build failures point to a detailed-log command; port conflicts suggest another
+port.
+
+To host it for others, run `docker build -t dailyred .` and publish the image's
+port 8080 through an HTTPS reverse proxy. The image listens on `0.0.0.0:8080`
+inside the container and runs as an unprivileged user. The build needs internet
+access, but the finished image serves all game assets locally.
+
+For Vercel hosting, see [the deployment guide](docs/deploy-vercel.md).
+
+## Build without Docker
+
+On macOS, you need the Xcode Command Line Tools (`xcode-select --install`), Node.js 18+
 and git. No Homebrew, no `sudo`, and **no ROM**: the decompilation builds the
 whole game from source.
 
@@ -37,6 +74,13 @@ node scripts/serve.mjs      # open http://localhost:8080
 ```
 
 `setup-macos.sh` picks the right compiler for Intel or Apple Silicon Macs.
+
+On Linux, install `build-essential`, `binutils-arm-none-eabi`,
+`gcc-arm-none-eabi`, `libnewlib-arm-none-eabi`, `libpng-dev`, `pkg-config`,
+`git`, `curl` and `unzip` (package names shown for Debian/Ubuntu). Then run
+`scripts/get-pokefirered.sh`, `scripts/fetch-vendor.sh`,
+`scripts/build-rom.sh`, and `node scripts/serve.mjs`. On Windows, the Docker
+route above avoids a local Unix build environment.
 
 ## How it works
 
@@ -268,12 +312,16 @@ website uses, press buttons, and read game RAM out of emulator save states
 
 ```sh
 cd tests
-npm install        # playwright-core only; it drives your installed Google Chrome
+npm ci --ignore-scripts # playwright-core only; it drives installed Chrome or Edge
+node server.mjs     # static server security and HTTP behavior
 npm run smoke      # the game loop (~3 min)
 npm run site       # the website on desktop and phone (~1 min)
 npm run teams -- 1 2 3            # print + validate the teams for these seeds
 npm run teams -- --random 40      # 40 random seeds
 ```
+
+For a quick browser check of a running container, use
+`node tests/browser.mjs http://127.0.0.1:8080` from the repository root.
 
 `npm run smoke` checks that:
 - each seed's team is valid: 6 different real Gen 1–3 species with a combined
@@ -319,7 +367,7 @@ instance and `dailyRed.stats` shows your saved stats.
 
 ## Running it locally
 
-Daily Red is meant to be played on your own computer. After the quick start,
+Daily Red can also be played on your own computer. After the quick start,
 `web/` holds the whole site (about 9 MB), and `node scripts/serve.mjs` serves
 it at http://localhost:8080:
 
@@ -329,8 +377,9 @@ web/vendor/     emulator (3.4 MB) + font
 web/game/       dailyred.gba.gz (5.5 MB), built on your machine
 ```
 
-To use another port, pass it: `node scripts/serve.mjs 3000`. Your stats are
-saved in the browser for that address, so keep using the same port to keep
+To use another port, pass it: `node scripts/serve.mjs 3000`. The server binds
+to `127.0.0.1` by default; set `HOST=0.0.0.0` when serving outside the machine.
+Your stats are saved in the browser for that address, so keep using the same port to keep
 your streaks. After rebuilding the ROM (`scripts/build-rom.sh`), reload the
 page.
 
@@ -365,7 +414,9 @@ footer links to it.
   suspended unless it begins during a click, so the game resumes it on the
   next key press or tap.
 - **Tested environment:** macOS with Google Chrome (headless, desktop and
-  phone emulation). Not yet tried on Safari, Firefox or real phones.
+  phone emulation). The container build targets Linux containers on Windows,
+  Linux and macOS. Vercel hosting, Safari, Firefox and real phones remain
+  untested until checked on a live deployment and those devices.
 - The L/R buttons still open FireRed's built-in help, which describes the
   normal game.
 
@@ -374,6 +425,9 @@ footer links to it.
 ```
 patches/pokefirered-dailyred.patch   all changes to pret/pokefirered
 scripts/setup-macos.sh               toolchain (xPack arm-none-eabi-gcc 14.2.1 + libpng)
+scripts/play.sh, scripts/play.cmd     one-command Docker build and local play
+Dockerfile                           Linux build and portable static server image
+Dockerfile.vercel                    Vercel container build of the same game
 scripts/get-pokefirered.sh           pinned upstream checkout + patch
 scripts/save-patch.sh                pokefirered/ changes → patches/
 scripts/build-rom.sh                 make modern → web/game/dailyred.gba.gz

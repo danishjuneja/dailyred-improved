@@ -11,6 +11,7 @@
 
 # Wrangler's local cache (Cloudflare deploys)
 /.wrangler/
+/.vercel/
 
 /tests/node_modules/
 /tests/output/

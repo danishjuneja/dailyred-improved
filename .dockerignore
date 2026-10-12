@@ -1,0 +1,9 @@
+.git
+.toolchain
+pokefirered
+web/vendor
+web/game
+tests/node_modules
+tests/output
+.wrangler
+.vercel

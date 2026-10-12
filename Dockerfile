@@ -1,0 +1,26 @@
+FROM node:24-bookworm-slim AS build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential binutils-arm-none-eabi gcc-arm-none-eabi \
+    libnewlib-arm-none-eabi libpng-dev pkg-config \
+    ca-certificates curl git unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY scripts/get-pokefirered.sh scripts/fetch-vendor.sh scripts/build-rom.sh ./scripts/
+COPY scripts/shims ./scripts/shims
+COPY patches ./patches
+RUN bash scripts/get-pokefirered.sh \
+    && bash scripts/fetch-vendor.sh \
+    && bash scripts/build-rom.sh
+
+FROM node:24-bookworm-slim
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=8080
+WORKDIR /app
+COPY web ./web
+COPY --from=build /app/web/vendor ./web/vendor
+COPY --from=build /app/web/game ./web/game
+COPY scripts/serve.mjs ./scripts/serve.mjs
+USER node
+EXPOSE 8080
+CMD ["node", "scripts/serve.mjs"]

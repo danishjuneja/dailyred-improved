@@ -13,6 +13,9 @@ export const ELF = join(GAME_DIR, 'pokefirered_modern.elf');
 
 const CHROME_PATHS = [
   process.env.CHROME_PATH,
+  process.env.PROGRAMFILES && join(process.env.PROGRAMFILES, 'Google/Chrome/Application/chrome.exe'),
+  process.env['PROGRAMFILES(X86)'] && join(process.env['PROGRAMFILES(X86)'], 'Microsoft/Edge/Application/msedge.exe'),
+  process.env.PROGRAMFILES && join(process.env.PROGRAMFILES, 'Microsoft/Edge/Application/msedge.exe'),
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   '/usr/bin/google-chrome',
   '/usr/bin/chromium',
@@ -20,7 +23,7 @@ const CHROME_PATHS = [
 
 export function findChrome() {
   const path = CHROME_PATHS.find((p) => existsSync(p));
-  if (!path) throw new Error('Google Chrome not found. Set CHROME_PATH to a Chrome/Chromium binary.');
+  if (!path) throw new Error('Chrome or Edge not found. Set CHROME_PATH to a Chrome/Chromium/Edge binary.');
   return path;
 }
 
