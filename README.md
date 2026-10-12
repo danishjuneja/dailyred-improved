@@ -264,8 +264,14 @@ not the byte-matching `agbcc` build, so it doesn't reproduce the retail ROM.
   marked as event Pokémon so Mew and Deoxys obey too.
 - **Held items:** Rest gets Chesto Berry. Compatible species get Light Ball,
   Thick Club, Soul Dew or Deep Sea Tooth when their attacks use the boosted stat.
-  Otherwise the seed chooses from Leftovers, Lum Berry, Sitrus Berry and matching
-  type boosters. Choice Band is eligible only with four physical attacks.
+  Otherwise items are scored against the finished moves and stats: Leftovers
+  favours bulk and sustained play, Lum Berry favours setup, and type boosters
+  favour the primary attack and offensive sets. Choice Band needs at least
+  three physical attacks (two dependable), Attack at least as high as Sp. Atk,
+  and no recovery or setup; the fourth move may be Toxic, Thunder Wave or
+  Encore, used before switching out of the choice lock. The daily seed selects
+  among items scoring at least 90% of the highest suitability score. These scores are
+  design heuristics, not simulated win rates.
   There are still no bag items.
 - **Safety:** each Pokémon is validated (level, HP, at least one move, no
   duplicate moves, PP). If a Pokémon somehow failed 10 times, the game would

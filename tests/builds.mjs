@@ -42,12 +42,21 @@ function checkBuild(mon) {
     }
   }
   const item = ITEMS.get(mon.heldItem);
-  if (item === 'CHOICE_BAND') assert.ok(mon.moveNames.every(name => {
+  if (item === 'CHOICE_BAND') assert.ok(mon.moveNames.filter(name => {
     const m = moveData.get(name);
     return m.power > 1 && physical.has(m.type);
+  }).length >= 3 && mon.moveNames.every(name => {
+    const m = moveData.get(name);
+    return (m.power > 1 && physical.has(m.type)) || ['TOXIC', 'THUNDER_WAVE', 'ENCORE'].includes(name);
   }), `${mon.speciesName}: unsuitable Choice Band`);
+  if (item === 'CHOICE_BAND') assert.ok(mon.stats[1] >= mon.stats[4], 'Choice Band on a special-leaning build');
   if (item === 'CHESTO_BERRY') assert.ok(mon.moveNames.includes('REST'));
   if (mon.moveNames.includes('REST')) assert.equal(item, 'CHESTO_BERRY');
+  if (mon.moveNames.includes('PROTECT') && mon.moveNames.includes('TOXIC')
+    && !mon.moveNames.includes('REST')
+    && !['PIKACHU', 'CUBONE', 'MAROWAK', 'LATIAS', 'LATIOS', 'CLAMPERL'].includes(mon.speciesName)) {
+    assert.equal(item, 'LEFTOVERS', `${mon.speciesName}: Toxic/Protect should favour sustained recovery`);
+  }
   assert.ok(!mon.moveNames.includes('SLEEP_TALK') || mon.moveNames.includes('REST'));
 }
 
@@ -80,13 +89,20 @@ try {
     ['LAPRAS', 'VENUSAUR', 'HERACROSS', 'PIKACHU', 'SLAKING', 'LUGIA'],
     ['DITTO', 'UNOWN', 'WOBBUFFET', 'MAGIKARP', 'SMEARGLE', 'KYOGRE'],
     ['BUTTERFREE', 'ZUBAT', 'YANMA', 'IVYSAUR', 'ZANGOOSE', 'REGIROCK'],
+    ['HERACROSS', 'PINSIR', 'MACHAMP', 'PRIMEAPE', 'SCYTHER', 'REGIROCK'],
+    ['HERACROSS', 'PINSIR', 'MACHAMP', 'PRIMEAPE', 'SCYTHER', 'REGIROCK'],
+    ['HERACROSS', 'PINSIR', 'MACHAMP', 'PRIMEAPE', 'SCYTHER', 'REGIROCK'],
   ];
+  let bandWithUtility = 0;
   for (const [index, names] of squads.entries()) {
     const party = await generate(names.map(name => ids.get(name)), 6789 + index);
     party.forEach(checkBuild);
+    bandWithUtility += party.filter(mon => ITEMS.get(mon.heldItem) === 'CHOICE_BAND'
+      && mon.moveNames.some(name => moveData.get(name).power === 0)).length;
     console.log(`PASS ${names.join(', ')}`);
     for (const mon of party) console.log(formatMon(mon));
   }
+  assert.ok(bandWithUtility > 0, 'physical attackers with a utility move should receive Choice Band');
 } finally {
   await browser.close();
   server.close();

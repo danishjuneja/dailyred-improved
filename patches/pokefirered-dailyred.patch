@@ -773,10 +773,10 @@ index 0000000..37ee62e
 +};
 diff --git a/src/dailyred_team.c b/src/dailyred_team.c
 new file mode 100644
-index 0000000..259de37
+index 0000000..388577d
 --- /dev/null
 +++ b/src/dailyred_team.c
-@@ -0,0 +1,784 @@
+@@ -0,0 +1,826 @@
 +#include "global.h"
 +#include "dailyred.h"
 +#include "characters.h"
@@ -1329,63 +1329,105 @@ index 0000000..259de37
 +    for (i = 0; i < MAX_MON_MOVES; i++) SetMonMoveSlot(mon, chosen[i], i);
 +}
 +
-+static void AssignBuildItem(struct Pokemon *mon, u32 *rng)
++// Item suitability is evaluated after stats and moves are finalized. Scores
++// are design heuristics, not predicted win rates. Choice-locking a utility
++// move is usable with a switch; locking recovery or setup breaks that build.
++static u16 ScoreBuildItem(struct Pokemon *mon, u16 item)
 +{
-+    u16 items[ARRAY_COUNT(sBattleItems) + MAX_MON_MOVES + 1];
 +    u16 species = GetMonData(mon, MON_DATA_SPECIES);
-+    u8 count = 0;
-+    u8 i, j;
-+    u16 move, item;
-+    bool8 allPhysical = TRUE, hasPhysical = FALSE, hasSpecial = FALSE;
-+
++    const struct SpeciesInfo *info = &gSpeciesInfo[species];
++    u16 hp = GetMonData(mon, MON_DATA_MAX_HP);
++    u8 physical = 0, special = 0, reliablePhysical = 0, i;
++    bool8 choiceCompatible = TRUE, setup = FALSE, sustain = FALSE, rest = FALSE;
++    bool8 boostPrimary = FALSE, boostAttack = FALSE;
 +    for (i = 0; i < MAX_MON_MOVES; i++)
 +    {
-+        move = GetMonData(mon, MON_DATA_MOVE1 + i);
-+        if (move == MOVE_REST)
-+        {
-+            item = ITEM_CHESTO_BERRY;
-+            SetMonData(mon, MON_DATA_HELD_ITEM, &item);
-+            return;
-+        }
++        u16 move = GetMonData(mon, MON_DATA_MOVE1 + i);
++        u8 effect = gBattleMoves[move].effect;
++        if (move == MOVE_NONE) continue;
++        if (move == MOVE_REST) rest = TRUE;
 +        if (gBattleMoves[move].power > 1)
 +        {
-+            if (IS_TYPE_PHYSICAL(gBattleMoves[move].type)) hasPhysical = TRUE;
-+            else hasSpecial = TRUE;
++            if (IS_TYPE_PHYSICAL(gBattleMoves[move].type))
++            {
++                physical++;
++                if (ReliablePower(move)) reliablePhysical++;
++            }
++            else special++;
++            if (sTypeBoostItems[gBattleMoves[move].type] == item)
++            {
++                boostAttack = TRUE;
++                if (i == 0) boostPrimary = TRUE;
++            }
 +        }
-+        if (move == MOVE_NONE || gBattleMoves[move].power <= 1 || !IS_TYPE_PHYSICAL(gBattleMoves[move].type))
-+            allPhysical = FALSE;
++        if (!(gBattleMoves[move].power > 1 && IS_TYPE_PHYSICAL(gBattleMoves[move].type))
++         && move != MOVE_TOXIC && move != MOVE_THUNDER_WAVE && move != MOVE_ENCORE)
++            choiceCompatible = FALSE;
++        switch (effect)
++        {
++        case EFFECT_ATTACK_UP_2: case EFFECT_BULK_UP: case EFFECT_DRAGON_DANCE:
++        case EFFECT_CALM_MIND: case EFFECT_SPECIAL_ATTACK_UP_2:
++            setup = TRUE;
++            break;
++        case EFFECT_RESTORE_HP: case EFFECT_SOFTBOILED: case EFFECT_REST:
++        case EFFECT_MORNING_SUN: case EFFECT_MOONLIGHT: case EFFECT_SYNTHESIS:
++        case EFFECT_LEECH_SEED: case EFFECT_TOXIC: case EFFECT_PROTECT:
++            sustain = TRUE;
++            break;
++        }
 +    }
-+
-+    item = ITEM_NONE;
-+    if (species == SPECIES_PIKACHU && hasSpecial) item = ITEM_LIGHT_BALL;
-+    if ((species == SPECIES_CUBONE || species == SPECIES_MAROWAK) && hasPhysical) item = ITEM_THICK_CLUB;
-+    if ((species == SPECIES_LATIAS || species == SPECIES_LATIOS) && hasSpecial) item = ITEM_SOUL_DEW;
-+    if (species == SPECIES_CLAMPERL && hasSpecial) item = ITEM_DEEP_SEA_TOOTH;
-+    if (item != ITEM_NONE)
++    // Rest is deliberately paired with an immediate wake-up in this format.
++    if (rest) return item == ITEM_CHESTO_BERRY ? 250 : 0;
++    switch (item)
 +    {
-+        SetMonData(mon, MON_DATA_HELD_ITEM, &item);
-+        return;
++    case ITEM_LIGHT_BALL: return species == SPECIES_PIKACHU && special ? 200 : 0;
++    case ITEM_THICK_CLUB: return (species == SPECIES_CUBONE || species == SPECIES_MAROWAK) && physical ? 200 : 0;
++    case ITEM_SOUL_DEW: return (species == SPECIES_LATIAS || species == SPECIES_LATIOS) && special ? 200 : 0;
++    case ITEM_DEEP_SEA_TOOTH: return species == SPECIES_CLAMPERL && special ? 200 : 0;
++    case ITEM_CHOICE_BAND:
++        return choiceCompatible && physical >= 3 && reliablePhysical >= 2
++            && GetMonData(mon, MON_DATA_ATK) >= GetMonData(mon, MON_DATA_SPATK) ? 150 : 0;
++    case ITEM_LEFTOVERS:
++        return hp > 1 ? 70 + (sustain ? 35 : 0)
++            + (info->baseHP + info->baseDefense + info->baseSpDefense >= 250 ? 25 : 0) : 0;
++    case ITEM_LUM_BERRY: return setup ? 135 : 65;
++    case ITEM_SITRUS_BERRY: return hp > 1 ? (hp <= 180 ? 85 : 45) : 0;
++    case ITEM_CHESTO_BERRY: return 0;
 +    }
++    return boostAttack ? 75 + (boostPrimary ? 15 : 0) + (physical + special >= 3 ? 15 : 0) : 0;
++}
 +
++static void AssignBuildItem(struct Pokemon *mon, u32 *rng)
++{
++    u16 items[ARRAY_COUNT(sBattleItems) + MAX_MON_MOVES + 6];
++    u16 scores[ARRAY_COUNT(items)], best = 0, item = ITEM_LEFTOVERS;
++    u8 count = 0, i, j, matches = 0;
 +    for (i = 0; i < ARRAY_COUNT(sBattleItems); i++)
 +        items[count++] = sBattleItems[i];
-+    if (allPhysical) items[count++] = ITEM_CHOICE_BAND;
-+
-+    // Ordinary typed attacks only. Hidden Power needs IV-based type handling,
-+    // so it does not qualify for a type booster here.
++    items[count++] = ITEM_CHOICE_BAND;
++    items[count++] = ITEM_CHESTO_BERRY;
++    items[count++] = ITEM_LIGHT_BALL;
++    items[count++] = ITEM_THICK_CLUB;
++    items[count++] = ITEM_SOUL_DEW;
++    items[count++] = ITEM_DEEP_SEA_TOOTH;
 +    for (i = 0; i < MAX_MON_MOVES; i++)
 +    {
-+        move = GetMonData(mon, MON_DATA_MOVE1 + i);
-+        if (gBattleMoves[move].power <= 1)
-+            continue;
++        u16 move = GetMonData(mon, MON_DATA_MOVE1 + i);
++        if (gBattleMoves[move].power <= 1) continue;
 +        item = sTypeBoostItems[gBattleMoves[move].type];
 +        for (j = 0; j < count && items[j] != item; j++)
 +            ;
-+        if (item != ITEM_NONE && j == count)
-+            items[count++] = item;
++        if (item != ITEM_NONE && j == count) items[count++] = item;
 +    }
-+
-+    item = items[TeamRandom(rng) % count];
++    for (i = 0; i < count; i++)
++    {
++        scores[i] = ScoreBuildItem(mon, items[i]);
++        if (scores[i] > best) best = scores[i];
++    }
++    // Preserve daily variety only among similarly suitable items.
++    for (i = 0; i < count; i++)
++        if (scores[i] && scores[i] * 100 >= best * 90)
++            if (TeamRandom(rng) % ++matches == 0) item = items[i];
 +    SetMonData(mon, MON_DATA_HELD_ITEM, &item);
 +}
 +

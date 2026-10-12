@@ -255,10 +255,14 @@ export function validateTeam({ count, party }) {
       problems.push(`${tag}: held item ${m.heldItem} isn't in the item pool`);
     }
     const item = ITEMS.get(m.heldItem);
-    if (item === 'CHOICE_BAND' && !m.moves.every((id) => {
+    if (item === 'CHOICE_BAND' && !(m.moves.filter((id) => {
       const info = itemRules.moveInfo.get(id);
       return info?.power > 1 && PHYSICAL_TYPES.has(info.type);
-    })) problems.push(`${tag}: Choice Band needs four physical attacks`);
+    }).length >= 3 && m.moves.filter(Boolean).every((id) => {
+      const info = itemRules.moveInfo.get(id);
+      return (info?.power > 1 && PHYSICAL_TYPES.has(info.type))
+        || ['TOXIC', 'THUNDER_WAVE', 'ENCORE'].includes(MOVES.get(id));
+    }))) problems.push(`${tag}: Choice Band needs physical coverage without recovery or setup`);
     if (item === 'CHESTO_BERRY' && !m.moveNames.includes('REST')) problems.push(`${tag}: Chesto Berry without Rest`);
     const owners = { LIGHT_BALL: ['PIKACHU'], THICK_CLUB: ['CUBONE', 'MAROWAK'],
       SOUL_DEW: ['LATIAS', 'LATIOS'], DEEP_SEA_TOOTH: ['CLAMPERL'] };
