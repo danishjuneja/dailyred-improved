@@ -17,7 +17,16 @@ separate ROM upload or Vercel environment variables are needed.
    will not verify that the roughly 5.5 MB ROM was served completely or that
    the server can fetch today's answer from NYT.
 
-For a repeatable live check on a machine with Chrome or Edge:
+Enable **Web Analytics** in the Vercel project's **Analytics** tab before
+deploying. The site includes Vercel's [plain-HTML integration](https://vercel.com/docs/analytics/quickstart)
+for visitor and page-view counts; it does not need React or an npm package.
+After deployment, visit the site and check that `/_vercel/insights/script.js`
+loads and page views appear in the Analytics dashboard. Initialization uses
+an external script compatible with the existing Content Security Policy.
+Analytics is skipped on localhost; its endpoint is provided by Vercel, not
+the standalone Docker server.
+
+For a repeatable live game check on a machine with Chrome or Edge:
 
 ```sh
 cd tests
