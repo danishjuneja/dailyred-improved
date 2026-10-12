@@ -1,8 +1,9 @@
 # Daily Red
 
-A daily Pokémon battle in the browser, like Wordle: once a day you press
-**Play**, get five level 100 Pokémon whose names follow that day's Wordle answer
-plus a legendary (everyone gets the same team that day), and climb to RED at the top of the
+A daily Pokémon battle in the browser, like Wordle: reveal the day's answer and
+team, then press **Play**. Five level 100 Pokémon follow the answer's letters,
+including one guaranteed strongest-match star, plus a legendary. Everyone
+gets the same team that day and climbs to RED at the top of the
 mountain. You get one battle per day. Your wins, losses, win streak and daily
 play streak are kept in your browser.
 
@@ -38,7 +39,8 @@ scripts\play.cmd          # Windows Command Prompt or PowerShell
 bash scripts/play.sh     # macOS or Linux terminal
 ```
 
-Open <http://localhost:8080> and press Play. If port 8080 is in use, pass a
+Open <http://localhost:8080>, answer the Wordle prompt, review the team, and
+press Play. If port 8080 is in use, pass a
 different port: `scripts\play.cmd 3000` or `bash scripts/play.sh 3000`.
 Press Ctrl+C in the terminal to stop the server (on Windows, confirm the batch
 prompt with `Y`). These scripts require Docker to be installed and running;
@@ -89,9 +91,10 @@ route above avoids a local Unix build environment.
 pret/pokefirered @ 037335f + patches/  ──make modern──▶  pokefirered_modern.gba
                                                               │ gzip (16 MB → 5.5 MB)
 web/ (static files)                                           ▼
-  index.html + app.js ── fetch ──▶ game/dailyred.gba.gz, vendor/mgba_libretro.wasm
-        │  fetches the day's Wordle answer through scripts/serve.mjs
-        │  writes the day's seed + answer + your record into the ROM bytes (rom-config.js)
+  index.html + app.js ── Wordle answer via scripts/serve.mjs
+        │  chooses and reveals the team from species-data.js before Play
+        │  fetches game/dailyred.gba.gz and vendor/mgba_libretro.wasm after Play
+        │  writes seed + answer + revealed species + record into the ROM (rom-config.js)
         ▼
   Nostalgist.js ──▶ RetroArch + mGBA core (WebAssembly) ──▶ <canvas>
         ▲
@@ -115,10 +118,11 @@ Emulator assets load from `web/vendor/`; the Node server proxies Wordle answers.
 - **The day's team:** the site fetches the Wordle answer for today's date in
   the player's own time zone through `/api/wordle/YYYY-MM-DD`. The seed is a
   hash of that date (`dailySeed` in `web/daily.js`), so the five letter-based
-  picks and the legendary are fixed for everyone on that calendar day.
+  picks and the legendary are fixed for everyone on that calendar day. The
+  answer and exact six species are revealed before the ROM is downloaded.
 - **Site → game:** the ROM contains a small struct, `gDailyRedRomConfig`: the
-  magic bytes `DAILYRED-CONF-V3`, then the seed, the player's wins and battles
-  so far, a "daily" flag, and the five answer letters. Before booting,
+  magic bytes `DAILYRED-CONF-V4`, then the seed, the player's wins and battles
+  so far, a "daily" flag, the five answer letters, and six species IDs. Before booting,
   `web/rom-config.js` finds the
   magic bytes in the downloaded ROM and fills them in; no addresses are
   hard-coded on either side. The game uses the record for its "Record: x
@@ -186,14 +190,21 @@ not the byte-matching `agbcc` build, so it doesn't reproduce the retail ROM.
 `CreateMon`, `CalculateMonStats`):
 
 - **Daily species:** the first five slots follow the Wordle answer in order:
-  `yodel` gives a Y, O, D, E and L Pokémon. After choosing those five, the
-  generator picks a seeded random legendary or mythical Pokémon for the sixth
-  slot from those that bring the team to at least 2700 combined base stats.
-  It retries the letter picks if none qualify. It uses different species for repeated
+  `yodel` gives a Y, O, D, E and L Pokémon. The strongest possible non-legendary
+  match across those letters is the guaranteed star; for `yodel`, that is
+  Dragonite in the D slot (ties use the first letter). The other four are seeded random picks. After those
+  five, a seeded random legendary or mythical Pokémon fills the sixth slot
+  and brings the team to at least 2700 combined base stats. The selector
+  retries the random picks if none qualify. It uses different species for repeated
   letters when possible, and permits repeats for those letters if needed to
   reach the minimum. If no matching combination can reach 2700, it uses the
-  strongest available combination. The word comes from the NYT endpoint at
-  play time; if that service is unavailable, the site asks the player to retry.
+  strongest available combination. The star gets at least one damaging move
+  through the existing move generator. The word comes from the NYT endpoint
+  before play; if that service is unavailable, the site asks the player to retry.
+  `web/species-data.js` is generated from FireRed's species names and base
+  stats by `node scripts/generate-species-data.mjs`. All A–Z letters have at
+  least one non-legendary Gen 1–3 match, including Z (Zubat, Zigzagoon,
+  Zangoose), so no letter currently requires a legendary star.
 - **Practice/standalone species:** 6 different Pokémon from all 386 of Generations 1–3 whose
   **base stat totals add up to at least 2700** (`MIN_TEAM_BASE_STAT_TOTAL`).
   **Legendaries are a 1-in-8 roll** (`LEGENDARY_TEAM_ODDS`): 1 team in 8 gets
@@ -307,6 +318,10 @@ come from FireRed's usual name-based formula and aren't configurable.
 4. When you're happy, run `scripts/save-patch.sh` and commit
    `patches/pokefirered-dailyred.patch`.
 
+If species names, stats or the legendary list change, run
+`node scripts/generate-species-data.mjs` and commit `web/species-data.js` too.
+Both container builds check that this catalogue matches the pinned ROM source.
+
 `pokefirered/`, `.toolchain/`, `web/vendor/` and `web/game/` are not tracked
 (see `.gitignore`); a clean checkout recreates them with the scripts above.
 `git -C pokefirered diff` shows all game changes against upstream.
@@ -327,6 +342,7 @@ website uses, press buttons, and read game RAM out of emulator save states
 cd tests
 npm ci --ignore-scripts # playwright-core only; it drives installed Chrome or Edge
 node server.mjs     # static server security and HTTP behavior
+node team.mjs       # fixed star, letter choices and repeated-letter fallback
 npm run smoke      # the game loop (~3 min)
 npm run site       # the website on desktop and phone (~1 min)
 npm run teams -- 1 2 3            # print + validate the teams for these seeds
@@ -385,7 +401,7 @@ Daily Red can also be played on your own computer. After the quick start,
 it at http://localhost:8080:
 
 ```
-web/index.html  app.js  daily.js  wordle.js  game-link.js  game-files.js  rom-config.js  style.css  favicon.svg  licenses.txt
+web/index.html  app.js  daily.js  wordle.js  team.js  species-data.js  game-link.js  game-files.js  rom-config.js  style.css  favicon.svg  licenses.txt
 web/vendor/     emulator (3.4 MB) + font
 web/game/       dailyred.gba.gz (5.5 MB), built on your machine
 ```
@@ -446,6 +462,7 @@ scripts/save-patch.sh                pokefirered/ changes → patches/
 scripts/build-rom.sh                 make modern → web/game/dailyred.gba.gz
 scripts/fetch-vendor.sh              Nostalgist, mGBA core, font (pinned, checksummed)
 scripts/serve.mjs                    local server and Wordle proxy
+scripts/generate-species-data.mjs   regenerate the browser species catalogue
 web/                                 the website
 tests/                               headless browser tests and the teams tool
 ```

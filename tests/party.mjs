@@ -210,6 +210,10 @@ export function expectedEVs(mon) {
 }
 const LEGENDARY_NAMES = new Set([...teamSource.match(/sLegendaries\[\] =\s*\{([^}]*)\}/)[1].matchAll(/SPECIES_(\w+)/g)].map((m) => m[1]));
 export const isLegendary = (mon) => LEGENDARY_NAMES.has(mon.speciesName);
+export function hasDamagingMove(mon) {
+  itemRules ??= loadItemRules();
+  return mon.moves.some((id) => id && itemRules.moveInfo.get(id)?.power > 0);
+}
 
 // Checks a party read from RAM against the team rules. Returns a list of
 // problems (empty when the team is valid).

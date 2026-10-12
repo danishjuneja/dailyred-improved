@@ -11,7 +11,8 @@ separate ROM upload or Vercel environment variables are needed.
 2. In Vercel, choose **Add New > Project**, import that repository, and leave
    **Root Directory** at the repository root. Select **Container** if Vercel
    asks for a preset, keep the detected `Dockerfile.vercel`, and deploy.
-3. Open the deployment URL and press **Play**. The first deployment compiles
+3. Open the deployment URL, answer the Wordle prompt, check the revealed team,
+   then press **Play**. The first deployment compiles
    the game, so allow time for its build to finish. Loading the homepage alone
    will not verify that the roughly 5.5 MB ROM was served completely or that
    the server can fetch today's answer from NYT.

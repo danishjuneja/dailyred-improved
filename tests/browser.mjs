@@ -11,7 +11,13 @@ try {
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto(url);
-  await page.locator('#play').click();
+  if (await page.locator('#wordle-question').isVisible()) {
+    await page.locator('#wordle-yes').click();
+    await page.waitForFunction(() => document.querySelector('.app')?.dataset.state === 'reveal', null, { timeout: 30000 });
+    await page.locator('#reveal-play').click();
+  } else {
+    await page.locator('#play').click();
+  }
   await page.waitForFunction(() => document.querySelector('.app')?.dataset.state === 'playing', null, { timeout: 60000 });
   const running = await page.evaluate(() => Boolean(window.dailyRed.emulator && document.querySelector('canvas')));
   if (!running || errors.length) throw new Error(`Game did not start cleanly: ${errors.join('; ')}`);

@@ -10,9 +10,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY scripts/get-pokefirered.sh scripts/fetch-vendor.sh scripts/build-rom.sh ./scripts/
+COPY scripts/generate-species-data.mjs ./scripts/
 COPY scripts/shims ./scripts/shims
 COPY patches ./patches
+COPY web/species-data.js ./web/species-data.js
 RUN bash scripts/get-pokefirered.sh \
+    && node scripts/generate-species-data.mjs --check \
     && bash scripts/fetch-vendor.sh \
     && bash scripts/build-rom.sh
 

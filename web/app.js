@@ -6,6 +6,7 @@ import { Nostalgist } from './vendor/nostalgist.js';
 import { loadGameFiles } from './game-files.js';
 import { injectConfig, parseSeed } from './rom-config.js';
 import { loadWordleWord } from './wordle.js';
+import { selectDailyTeam } from './team.js';
 import { createGameLink, PHASE, RESULT } from './game-link.js';
 import {
   today, dailySeed, msUntilTomorrow, loadStats, resultFor, currentStreaks,
@@ -17,6 +18,13 @@ const app = document.querySelector('.app');
 const screen = $('screen');
 const ui = {
   play: $('play'),
+  question: $('wordle-question'),
+  yes: $('wordle-yes'),
+  no: $('wordle-no'),
+  revealIntro: $('reveal-intro'),
+  revealWord: $('reveal-word'),
+  revealTeam: $('reveal-team'),
+  revealPlay: $('reveal-play'),
   retry: $('retry'),
   sound: $('sound'),
   fullscreen: $('fullscreen'),
@@ -52,6 +60,9 @@ let runDate = null;
 let battleSeen = false;
 let muted = session.get('dailyred-muted') === '1';
 let starting = false;
+let revealing = false;
+let revealed = null;
+let retryAction = startRun;
 let titleDate = null;
 
 // RetroArch opens a Web Audio context for each emulator and never closes it,
@@ -86,7 +97,8 @@ function renderTitle() {
   ui.dayStreak.textContent = dayStreak;
 
   const result = practiceSeed ? null : resultFor(stats, titleDate);
-  ui.play.hidden = Boolean(result);
+  ui.question.hidden = Boolean(practiceSeed || result);
+  ui.play.hidden = !practiceSeed || Boolean(result);
   ui.played.hidden = !result;
   ui.practiceNote.hidden = !practiceSeed;
   if (result) ui.playedResult.textContent = result === 'won' ? 'You beat RED today!' : 'RED won today.';
@@ -115,6 +127,47 @@ setInterval(() => {
 
 const megabytes = (n) => (n / 1048576).toFixed(1);
 
+async function showReveal(solved) {
+  if (revealing) return;
+  revealing = true;
+  const date = today();
+  try {
+    setState('loading');
+    ui.loadingText.textContent = "Getting today's Wordle";
+    ui.loadingDetail.textContent = '';
+    ui.meter.style.width = '0';
+    const word = await loadWordleWord(date);
+    if (today() !== date) {
+      renderTitle();
+      setState('title');
+      return;
+    }
+    const team = selectDailyTeam(word, dailySeed(date));
+    revealed = { date, word, team };
+    ui.revealIntro.textContent = solved ? 'Nice work. Here is your team.' : "Today's word is";
+    ui.revealWord.textContent = word;
+    ui.revealTeam.replaceChildren();
+    for (const [index, species] of team.species.entries()) {
+      const item = document.createElement('li');
+      item.dataset.speciesId = String(species.id);
+      const name = document.createElement('span');
+      const role = document.createElement('span');
+      name.textContent = `${index + 1}. ${species.name}`;
+      role.className = 'team-role';
+      role.textContent = index === team.starSlot ? 'Star' : species.legendary ? 'Legendary' : '';
+      item.append(name, role);
+      ui.revealTeam.append(item);
+    }
+    setState('reveal');
+  } catch (err) {
+    retryAction = () => showReveal(solved);
+    ui.errorText.textContent = err?.message || String(err);
+    setState('error');
+  } finally {
+    revealing = false;
+  }
+}
+
 function checkBrowser() {
   if (typeof WebAssembly !== 'object' || typeof DecompressionStream !== 'function') {
     throw new Error("This browser can't run the game. Use a recent version of Chrome, Edge, Firefox or Safari.");
@@ -140,6 +193,13 @@ async function startRun() {
   if (starting) return;
   starting = true;
   try {
+    runDate = today();
+    stats = loadStats(); // another tab may have played meanwhile
+    if (!practiceSeed && (resultFor(stats, runDate) || revealed?.date !== runDate)) {
+      renderTitle();
+      setState('title');
+      return;
+    }
     checkBrowser();
     stopEmulator();
     setState('loading');
@@ -150,19 +210,16 @@ async function startRun() {
       ui.loadingDetail.textContent = total ? `${megabytes(loaded)} of ${megabytes(total)} MB` : `${megabytes(loaded)} MB`;
     });
 
-    runDate = today();
-    stats = loadStats(); // another tab may have played meanwhile
-    if (!practiceSeed && resultFor(stats, runDate)) {
+    if (!practiceSeed && (today() !== runDate || resultFor(loadStats(), runDate))) {
       renderTitle();
       setState('title');
       return;
     }
     const seed = practiceSeed ?? dailySeed(runDate);
-    ui.loadingText.textContent = "Choosing today's team";
-    const word = practiceSeed ? null : await loadWordleWord(runDate);
     const rom = practiceSeed
       ? injectConfig(files.rom, { seed })
-      : injectConfig(files.rom, { seed, wins: stats.wins, battles: stats.wins + stats.losses, daily: true, word });
+      : injectConfig(files.rom, { seed, wins: stats.wins, battles: stats.wins + stats.losses,
+        daily: true, word: revealed.word, species: revealed.team.species.map((entry) => entry.id) });
 
     ui.loadingText.textContent = 'Starting the emulator';
     ui.loadingDetail.textContent = '';
@@ -192,6 +249,7 @@ async function startRun() {
     pollTimer = setInterval(watchGame, 500);
     setState('playing');
   } catch (err) {
+    retryAction = startRun;
     console.error(err);
     stopEmulator();
     // fetch() rejects with a TypeError when the network itself fails.
@@ -249,7 +307,10 @@ function onClick(button, handler) {
 }
 
 onClick(ui.play, startRun);
-onClick(ui.retry, startRun);
+onClick(ui.yes, () => showReveal(true));
+onClick(ui.no, () => showReveal(false));
+onClick(ui.revealPlay, startRun);
+onClick(ui.retry, () => retryAction());
 
 onClick(ui.sound, () => {
   if (!emu) return;

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   startServer, launchBrowser, sleep, press, getStatus, waitFor, startRedBattle, forceWin, forceLoss,
 } from './lib.mjs';
-import { readParty, teamBaseStatTotal, isLegendary } from './party.mjs';
+import { readParty, teamBaseStatTotal, isLegendary, hasDamagingMove } from './party.mjs';
 
 const OUT = fileURLToPath(new URL('./output/', import.meta.url));
 mkdirSync(OUT, { recursive: true });
@@ -34,7 +34,7 @@ const shown = (page) => page.evaluate(() => ({
   losses: document.getElementById('stat-losses').textContent,
   winStreak: document.getElementById('stat-win-streak').textContent,
   dayStreak: document.getElementById('stat-day-streak').textContent,
-  canPlay: !document.getElementById('play').hidden,
+  canPlay: !document.getElementById('play').hidden || !document.getElementById('wordle-question').hidden,
   played: document.getElementById('played').hidden ? null : document.getElementById('played-result').textContent,
   next: document.getElementById('played-next').textContent,
 }));
@@ -45,6 +45,15 @@ async function attach(page) {
   await page.waitForFunction(() => document.querySelector('.app').dataset.state === 'playing', null, { timeout: 60000 });
   await page.evaluate(() => { window.emu = window.dailyRed.emulator; });
   return waitFor(page, (s) => s.inOverworld, { what: 'overworld', timeoutMs: 30000 });
+}
+
+async function revealAndPlay(page, answer = 'yes') {
+  await page.click(`#wordle-${answer}`);
+  await page.waitForFunction(() => document.querySelector('.app').dataset.state === 'reveal');
+  const preview = await page.locator('#reveal-team li').evaluateAll((items) => items.map((item) => Number(item.dataset.speciesId)));
+  await page.click('#reveal-play');
+  await attach(page);
+  return preview;
 }
 
 // Presses A through the end of the battle and the closing messages until the
@@ -74,7 +83,7 @@ try {
   await sleep(1200);
   await page.screenshot({ path: `${OUT}/site-title.png`, fullPage: true });
   let s = await shown(page);
-  check(s.canPlay && s.wins === '0' && s.losses === '0' && s.winStreak === '0' && s.dayStreak === '0', `new visitor sees Play and zeroed stats (${statLine(s)})`);
+  check(s.canPlay && s.wins === '0' && s.losses === '0' && s.winStreak === '0' && s.dayStreak === '0', `new visitor sees the Wordle question and zeroed stats (${statLine(s)})`);
   check(await page.evaluate(() => document.querySelector('.red-sprite').naturalWidth === 64), "RED's sprite is shown on the title card");
   const leftovers = await page.evaluate(() => ['.tagline', '.steps', '#seed', '#new-run'].filter((sel) => document.querySelector(sel)));
   check(leftovers.length === 0, `removed: tagline, how-it-works, seed, New run (${leftovers.join(', ') || 'none left'})`);
@@ -87,12 +96,24 @@ try {
   check(licenses === 200, `footer links to licenses.txt (status ${licenses})`);
   check(!(await page.locator('.pad').isVisible()), 'touch controls are hidden on desktop');
 
-  await page.click('#play');
+  let romRequests = 0;
+  page.on('request', (request) => { if (request.url().endsWith('/game/dailyred.gba.gz')) romRequests++; });
+  await page.click('#wordle-no');
+  await page.waitForFunction(() => document.querySelector('.app').dataset.state === 'reveal');
+  await page.screenshot({ path: `${OUT}/site-reveal.png`, fullPage: true });
+  check(romRequests === 0 && await page.locator('#reveal-word').textContent() === WORDS[DAY1],
+    'the answer and team are revealed before the ROM loads');
+  const preview1 = await page.locator('#reveal-team li').evaluateAll((items) => items.map((item) => Number(item.dataset.speciesId)));
+  await page.click('#reveal-play');
   await attach(page);
   const box = await page.locator('canvas').boundingBox();
   check(Math.round(box.width) === 720 && Math.round(box.height) === 480, `game screen is 720x480 on desktop (got ${box.width}x${box.height})`);
   const firstParty = readParty((await getStatus(page)).mem).party;
   const team1 = JSON.stringify(firstParty.map((m) => m.species));
+  check(JSON.stringify(preview1) === team1, 'the revealed team matches the ROM party');
+  const starSlot = await page.locator('#reveal-team li').evaluateAll((items) =>
+    items.findIndex((item) => item.querySelector('.team-role')?.textContent === 'Star'));
+  check(starSlot >= 0 && hasDamagingMove(firstParty[starSlot]), 'the revealed star has a damaging move');
   check(firstParty.slice(0, 5).every((m, i) => m.speciesName[0].toLowerCase() === WORDS[DAY1][i])
     && isLegendary(firstParty[5]) && firstParty.slice(0, 5).every((m) => !isLegendary(m))
     && teamBaseStatTotal(firstParty) >= 2700,
@@ -119,8 +140,7 @@ try {
   const otherPage = await other.newPage();
   await otherPage.clock.setFixedTime(at(DAY1, '22:00:00'));
   await otherPage.goto(server.url);
-  await otherPage.click('#play');
-  await attach(otherPage);
+  await revealAndPlay(otherPage);
   check(JSON.stringify(readParty((await getStatus(otherPage)).mem).party.map((m) => m.species)) === team1, 'everyone gets the same team on the same day');
   await other.close();
 
@@ -129,11 +149,11 @@ try {
   await page.reload();
   await sleep(1000);
   s = await shown(page);
-  check(s.canPlay && s.winStreak === '1' && s.dayStreak === '1', `next day: Play is back, streaks kept (${statLine(s)})`);
-  await page.click('#play');
-  await attach(page);
+  check(s.canPlay && s.winStreak === '1' && s.dayStreak === '1', `next day: the Wordle question is back, streaks kept (${statLine(s)})`);
+  const preview2 = await revealAndPlay(page, 'yes');
   const secondParty = readParty((await getStatus(page)).mem).party;
   const team2 = JSON.stringify(secondParty.map((m) => m.species));
+  check(JSON.stringify(preview2) === team2, 'the yes path reveals the same team the ROM uses');
   check(team2 !== team1, "a new day brings a new team");
   check(secondParty.slice(0, 5).every((m, i) => m.speciesName[0].toLowerCase() === WORDS[DAY2][i])
     && isLegendary(secondParty[5]) && teamBaseStatTotal(secondParty) >= 2700,
@@ -148,8 +168,7 @@ try {
   // Day 3: leave in the middle of the battle -> counts as a loss.
   await page.clock.setFixedTime(at(DAY3));
   await page.reload();
-  await page.click('#play');
-  await attach(page);
+  await revealAndPlay(page);
   await startRedBattle(page);
   await sleep(1000);
   await page.reload();
@@ -163,8 +182,7 @@ try {
   await sleep(800);
   s = await shown(page);
   check(s.canPlay && s.winStreak === '0' && s.dayStreak === '0' && s.wins === '1' && s.losses === '2', `missing a day resets the streaks (${statLine(s)})`);
-  await page.click('#play');
-  await attach(page);
+  await revealAndPlay(page);
   const repeatParty = readParty((await getStatus(page)).mem).party;
   check(repeatParty.slice(0, 5).every((m) => m.speciesName[0] === 'Z')
     && new Set(repeatParty.slice(0, 5).map((m) => m.species)).size < 5
@@ -204,7 +222,17 @@ try {
   });
   check(fits, 'the title card fits inside the phone-sized screen');
   check(await phone.locator('.pad').isVisible(), 'touch controls are shown on a phone');
-  await phone.click('#play');
+  await phone.click('#wordle-yes');
+  await phone.waitForFunction(() => document.querySelector('.app').dataset.state === 'reveal');
+  await phone.screenshot({ path: `${OUT}/site-phone-reveal.png` });
+  check(await phone.evaluate(() => {
+    const screen = document.querySelector('.screen').getBoundingClientRect();
+    return [...document.querySelectorAll('.card-reveal > *')].every((el) => {
+      const box = el.getBoundingClientRect();
+      return box.top >= screen.top - 1 && box.bottom <= screen.bottom + 1;
+    });
+  }), 'the reveal fits inside the phone-sized screen');
+  await phone.click('#reveal-play');
   await attach(phone);
   await sleep(1500);
   const startY = (await getStatus(phone)).y;
@@ -225,7 +253,9 @@ try {
   const broken = await brokenContext.newPage();
   await broken.route('**/game/dailyred.gba.gz', (route) => route.fulfill({ status: 404, body: 'missing' }));
   await broken.goto(server.url);
-  await broken.click('#play');
+  await broken.click('#wordle-yes');
+  await broken.waitForFunction(() => document.querySelector('.app').dataset.state === 'reveal');
+  await broken.click('#reveal-play');
   await broken.waitForFunction(() => document.querySelector('.app').dataset.state === 'error');
   const message = await broken.locator('#error-text').textContent();
   check(message.includes('HTTP 404'), `download failure shows an error ("${message}")`);
@@ -234,6 +264,22 @@ try {
   await attach(broken);
   check(true, 'Try again starts the game after the error');
   await brokenContext.close();
+
+  const wordleContext = await browser.newContext();
+  const failWordle = (route) => route.fulfill({ status: 503, body: 'unavailable' });
+  await wordleContext.route('**/api/wordle/*', failWordle);
+  const wordlePage = await wordleContext.newPage();
+  await wordlePage.clock.setFixedTime(at(DAY1));
+  await wordlePage.goto(server.url);
+  await wordlePage.click('#wordle-yes');
+  await wordlePage.waitForFunction(() => document.querySelector('.app').dataset.state === 'error');
+  check((await wordlePage.locator('#error-text').textContent()).includes('Wordle'), 'Wordle failure shows a retryable error');
+  await wordleContext.unroute('**/api/wordle/*', failWordle);
+  await mockWordle(wordleContext);
+  await wordlePage.click('#retry');
+  await wordlePage.waitForFunction(() => document.querySelector('.app').dataset.state === 'reveal');
+  check(await wordlePage.locator('#reveal-word').textContent() === WORDS[DAY1], 'Wordle retry reaches the reveal');
+  await wordleContext.close();
 } catch (err) {
   failures++;
   console.log('FAIL ', err.message);

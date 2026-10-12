@@ -29,12 +29,26 @@
               <div><dt>Win streak</dt><dd id="stat-win-streak">0</dd></div>
               <div><dt>Day streak</dt><dd id="stat-day-streak">0</dd></div>
             </dl>
+            <div class="wordle-question" id="wordle-question">
+              <h2>Did you solve today's Wordle?</h2>
+              <div class="answer-actions">
+                <button class="button button-quiet" id="wordle-yes" type="button">Yes</button>
+                <button class="button button-quiet" id="wordle-no" type="button">No</button>
+              </div>
+            </div>
             <button class="button button-play" id="play" type="button">Play</button>
             <div class="played" id="played" hidden>
               <p class="played-result" id="played-result"></p>
               <p class="played-next" id="played-next"></p>
             </div>
             <p class="card-note" id="practice-note" hidden>Practice run: results aren't saved.</p>
+          </div>
+          <div class="card card-reveal" aria-label="Today's team">
+            <p class="reveal-eyebrow" id="reveal-intro"></p>
+            <h2 class="reveal-word" id="reveal-word"></h2>
+            <p class="reveal-caption">Your team for today</p>
+            <ol class="reveal-team" id="reveal-team"></ol>
+            <button class="button button-play" id="reveal-play" type="button">Play</button>
           </div>
           <div class="card card-loading" role="status" aria-live="polite">
             <p class="card-heading" id="loading-text">Downloading the game</p>

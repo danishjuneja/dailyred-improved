@@ -338,7 +338,7 @@ index 5c7bbf8..e477fa9 100644
  #define VAR_0x402D                         0x402D
 diff --git a/include/dailyred.h b/include/dailyred.h
 new file mode 100644
-index 0000000..df9370c
+index 0000000..ab2b3d3
 --- /dev/null
 +++ b/include/dailyred.h
 @@ -0,0 +1,43 @@
@@ -382,7 +382,7 @@ index 0000000..df9370c
 +void DailyRed_ApplyBossEVs(struct Pokemon *party, u8 partySize);
 +
 +// src/dailyred_team.c
-+void DailyRed_GenerateTeam(struct Pokemon *party, u32 *rngState, const u8 *word);
++void DailyRed_GenerateTeam(struct Pokemon *party, u32 *rngState, const u8 *word, const u16 *fixedSpecies);
 +
 +#endif // GUARD_DAILYRED_H
 diff --git a/src/battle_main.c b/src/battle_main.c
@@ -437,10 +437,10 @@ index 6d62084..44f97e4 100644
      DoTrainerBattle();
 diff --git a/src/dailyred.c b/src/dailyred.c
 new file mode 100644
-index 0000000..1a2de59
+index 0000000..5afa3bf
 --- /dev/null
 +++ b/src/dailyred.c
-@@ -0,0 +1,237 @@
+@@ -0,0 +1,247 @@
 +#include "global.h"
 +#include "gflib.h"
 +#include "dailyred.h"
@@ -455,6 +455,7 @@ index 0000000..1a2de59
 +#include "save.h"
 +#include "constants/flags.h"
 +#include "constants/maps.h"
++#include "constants/species.h"
 +
 +// Game flow for Daily Red: boot, starting a run and how a run ends.
 +// The team rules live in dailyred_team.c and RED's team in dailyred_boss.c.
@@ -475,11 +476,12 @@ index 0000000..1a2de59
 +    u8 daily;    // TRUE: the website's daily game (one battle, then the game ends)
 +    u8 word[DAILYRED_WORD_LENGTH]; // lowercase ASCII Wordle answer; zero outside daily play
 +    u8 padding[2];
++    u16 species[PARTY_SIZE]; // the team shown by the website before play
 +};
 +
 +const struct DailyRedRomConfig gDailyRedRomConfig __attribute__((used, aligned(4))) =
 +{
-+    .magic = {'D', 'A', 'I', 'L', 'Y', 'R', 'E', 'D', '-', 'C', 'O', 'N', 'F', '-', 'V', '3'},
++    .magic = {'D', 'A', 'I', 'L', 'Y', 'R', 'E', 'D', '-', 'C', 'O', 'N', 'F', '-', 'V', '4'},
 +};
 +
 +// The website reads this from the emulator's memory (web/game-link.js) to
@@ -600,7 +602,9 @@ index 0000000..1a2de59
 +static void GenerateTeam(void)
 +{
 +    u8 word[DAILYRED_WORD_LENGTH];
++    u16 species[PARTY_SIZE];
 +    const u8 *dailyWord = NULL;
++    const u16 *fixedSpecies = NULL;
 +    u8 i;
 +
 +    if (IsDailyGame())
@@ -612,9 +616,15 @@ index 0000000..1a2de59
 +                break;
 +        }
 +        if (i == DAILYRED_WORD_LENGTH)
++        {
 +            dailyWord = word;
++            for (i = 0; i < PARTY_SIZE; i++)
++                species[i] = *(const vu16 *)&gDailyRedRomConfig.species[i];
++            if (species[0] != SPECIES_NONE)
++                fixedSpecies = species;
++        }
 +    }
-+    DailyRed_GenerateTeam(gPlayerParty, &sTeamRngState, dailyWord);
++    DailyRed_GenerateTeam(gPlayerParty, &sTeamRngState, dailyWord, fixedSpecies);
 +    CalculatePlayerPartyCount();
 +}
 +
@@ -763,10 +773,10 @@ index 0000000..37ee62e
 +};
 diff --git a/src/dailyred_team.c b/src/dailyred_team.c
 new file mode 100644
-index 0000000..349e88e
+index 0000000..b3ca9e1
 --- /dev/null
 +++ b/src/dailyred_team.c
-@@ -0,0 +1,624 @@
+@@ -0,0 +1,640 @@
 +#include "global.h"
 +#include "dailyred.h"
 +#include "characters.h"
@@ -1361,7 +1371,21 @@ index 0000000..349e88e
 +    return TRUE;
 +}
 +
-+void DailyRed_GenerateTeam(struct Pokemon *party, u32 *rngState, const u8 *word)
++static bool8 IsValidFixedWordTeam(const u16 *species, const u8 *word)
++{
++    u8 i;
++
++    if (word == NULL || !IsLegendary(species[DAILYRED_WORD_LENGTH]))
++        return FALSE;
++    for (i = 0; i < DAILYRED_WORD_LENGTH; i++)
++    {
++        if (!StartsWithLetter(species[i], word[i]))
++            return FALSE;
++    }
++    return TRUE;
++}
++
++void DailyRed_GenerateTeam(struct Pokemon *party, u32 *rngState, const u8 *word, const u16 *fixedSpecies)
 +{
 +    u16 species[PARTY_SIZE];
 +    u8 i, attempt;
@@ -1369,7 +1393,9 @@ index 0000000..349e88e
 +    for (i = 0; i < PARTY_SIZE; i++)
 +        ZeroMonData(&party[i]);
 +
-+    if (word != NULL)
++    if (fixedSpecies != NULL && IsValidFixedWordTeam(fixedSpecies, word))
++        memcpy(species, fixedSpecies, sizeof(species));
++    else if (word != NULL)
 +        PickWordTeamSpecies(species, rngState, word);
 +    else
 +        PickTeamSpecies(species, rngState);

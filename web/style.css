@@ -116,6 +116,7 @@ a { color: inherit; text-underline-offset: 3px; }
 }
 
 .app[data-state="title"] .card-title,
+.app[data-state="reveal"] .card-reveal,
 .app[data-state="loading"] .card-loading,
 .app[data-state="error"] .card-error { display: flex; }
 
@@ -134,11 +135,11 @@ a { color: inherit; text-underline-offset: 3px; }
 }
 
 /* Title card: RED, the player's stats, then Play (or today's result). */
-.card-title { gap: 4.5cqh; padding: 4cqh; }
+.card-title { gap: 3cqh; padding: 3cqh; }
 
 .red-sprite {
   position: relative;
-  height: 38cqh;
+  height: 32cqh;
   width: auto;
   image-rendering: pixelated;
   filter: drop-shadow(0 1cqh 0 rgba(0, 0, 0, 0.35));
@@ -174,6 +175,46 @@ a { color: inherit; text-underline-offset: 3px; }
   padding: max(10px, 2.6cqh) max(28px, 9cqh);
   font-size: max(18px, 6cqh);
 }
+
+.wordle-question { position: relative; display: grid; justify-items: center; gap: 2cqh; }
+.wordle-question h2 { margin: 0; font: 600 max(15px, 4.5cqh)/1.15 var(--font-pixel); }
+.answer-actions { display: flex; justify-content: center; gap: 12px; }
+.answer-actions .button { padding: 7px 22px; border-color: #8fa3b5; font-size: max(14px, 3.8cqh); }
+
+.card-reveal { gap: 1.5cqh; padding: 3cqh; }
+.reveal-eyebrow, .reveal-caption { margin: 0; color: #b9c8d5; font-size: max(12px, 3cqh); }
+.reveal-word {
+  margin: 0;
+  color: #fff;
+  font: 700 max(24px, 8cqh)/1 var(--font-pixel);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.reveal-team {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1cqh 2cqw;
+  width: min(100%, 540px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+.reveal-team li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  min-width: 0;
+  padding: 0.8cqh 1.5cqw;
+  border: 1px solid #7d91a4;
+  border-radius: 4px;
+  background: #162533;
+  font: 600 max(11px, 3.4cqh)/1.15 var(--font-pixel);
+}
+.reveal-team li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reveal-team .team-role { flex: none; color: #ffd36d; font-size: 0.8em; }
+.card-reveal .button-play { padding: max(7px, 2cqh) 36px; font-size: max(16px, 5cqh); }
 
 .played {
   position: relative;
