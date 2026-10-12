@@ -39,7 +39,28 @@ function inside(base, target) {
   return path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path);
 }
 
-export function createWebServer() {
+export function createWebServer({ fetchWordle = fetch } = {}) {
+  const words = new Map();
+  async function wordForDate(date) {
+    if (!words.has(date)) {
+      const pending = (async () => {
+        const response = await fetchWordle(`https://www.nytimes.com/svc/wordle/v2/${date}.json`, {
+          headers: { Accept: 'application/json' },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!response.ok) throw new Error(`Wordle returned HTTP ${response.status}`);
+        const data = await response.json();
+        if (data.print_date !== date || !/^[a-z]{5}$/.test(data.solution)) {
+          throw new Error('Wordle returned an invalid answer');
+        }
+        return data.solution;
+      })();
+      words.set(date, pending);
+      pending.catch(() => words.delete(date));
+    }
+    return words.get(date);
+  }
+
   return createServer(async (req, res) => {
     const headers = { ...securityHeaders, 'Cache-Control': 'no-cache' };
     if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -48,6 +69,27 @@ export function createWebServer() {
     }
     try {
       const url = new URL(req.url, 'http://localhost');
+      if (url.pathname.startsWith('/api/wordle/')) {
+        const date = url.pathname.slice('/api/wordle/'.length);
+        const parsed = new Date(`${date}T00:00:00Z`);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)
+          || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date
+          || Math.abs(parsed.getTime() - Date.now()) > 2 * 86400000) {
+          res.writeHead(400, headers).end('Invalid date');
+          return;
+        }
+        try {
+          const body = JSON.stringify({ date, word: await wordForDate(date) });
+          res.writeHead(200, {
+            ...headers,
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Length': Buffer.byteLength(body),
+          }).end(req.method === 'HEAD' ? undefined : body);
+        } catch {
+          res.writeHead(502, headers).end(req.method === 'HEAD' ? undefined : "Today's Wordle is unavailable. Try again later.");
+        }
+        return;
+      }
       const requested = resolve(root, decodeURIComponent(url.pathname).replace(/^\/+/, ''));
       if (!inside(root, requested)) {
         res.writeHead(403, headers).end();

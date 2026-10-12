@@ -338,10 +338,10 @@ index 5c7bbf8..e477fa9 100644
  #define VAR_0x402D                         0x402D
 diff --git a/include/dailyred.h b/include/dailyred.h
 new file mode 100644
-index 0000000..47b058b
+index 0000000..df9370c
 --- /dev/null
 +++ b/include/dailyred.h
-@@ -0,0 +1,42 @@
+@@ -0,0 +1,43 @@
 +#ifndef GUARD_DAILYRED_H
 +#define GUARD_DAILYRED_H
 +
@@ -362,6 +362,7 @@ index 0000000..47b058b
 +#include "constants/pokemon.h"
 +
 +#define DAILYRED_BOSS_PARTY_SIZE 6
++#define DAILYRED_WORD_LENGTH 5
 +
 +// The boss team (species, IVs, items, moves) and its EV spreads.
 +// Edit src/dailyred_boss.c to change it.
@@ -381,7 +382,7 @@ index 0000000..47b058b
 +void DailyRed_ApplyBossEVs(struct Pokemon *party, u8 partySize);
 +
 +// src/dailyred_team.c
-+void DailyRed_GenerateTeam(struct Pokemon *party, u32 *rngState);
++void DailyRed_GenerateTeam(struct Pokemon *party, u32 *rngState, const u8 *word);
 +
 +#endif // GUARD_DAILYRED_H
 diff --git a/src/battle_main.c b/src/battle_main.c
@@ -436,10 +437,10 @@ index 6d62084..44f97e4 100644
      DoTrainerBattle();
 diff --git a/src/dailyred.c b/src/dailyred.c
 new file mode 100644
-index 0000000..1ec6e68
+index 0000000..1a2de59
 --- /dev/null
 +++ b/src/dailyred.c
-@@ -0,0 +1,221 @@
+@@ -0,0 +1,237 @@
 +#include "global.h"
 +#include "gflib.h"
 +#include "dailyred.h"
@@ -472,12 +473,13 @@ index 0000000..1ec6e68
 +    u16 wins;    // the player's record before this game, for the record message
 +    u16 battles;
 +    u8 daily;    // TRUE: the website's daily game (one battle, then the game ends)
-+    u8 padding[3];
++    u8 word[DAILYRED_WORD_LENGTH]; // lowercase ASCII Wordle answer; zero outside daily play
++    u8 padding[2];
 +};
 +
 +const struct DailyRedRomConfig gDailyRedRomConfig __attribute__((used, aligned(4))) =
 +{
-+    .magic = {'D', 'A', 'I', 'L', 'Y', 'R', 'E', 'D', '-', 'C', 'O', 'N', 'F', '-', 'V', '2'},
++    .magic = {'D', 'A', 'I', 'L', 'Y', 'R', 'E', 'D', '-', 'C', 'O', 'N', 'F', '-', 'V', '3'},
 +};
 +
 +// The website reads this from the emulator's memory (web/game-link.js) to
@@ -597,7 +599,22 @@ index 0000000..1ec6e68
 +
 +static void GenerateTeam(void)
 +{
-+    DailyRed_GenerateTeam(gPlayerParty, &sTeamRngState);
++    u8 word[DAILYRED_WORD_LENGTH];
++    const u8 *dailyWord = NULL;
++    u8 i;
++
++    if (IsDailyGame())
++    {
++        for (i = 0; i < DAILYRED_WORD_LENGTH; i++)
++        {
++            word[i] = *(const vu8 *)&gDailyRedRomConfig.word[i];
++            if (word[i] < 'a' || word[i] > 'z')
++                break;
++        }
++        if (i == DAILYRED_WORD_LENGTH)
++            dailyWord = word;
++    }
++    DailyRed_GenerateTeam(gPlayerParty, &sTeamRngState, dailyWord);
 +    CalculatePlayerPartyCount();
 +}
 +
@@ -746,12 +763,14 @@ index 0000000..37ee62e
 +};
 diff --git a/src/dailyred_team.c b/src/dailyred_team.c
 new file mode 100644
-index 0000000..4b9a87f
+index 0000000..e0be26e
 --- /dev/null
 +++ b/src/dailyred_team.c
-@@ -0,0 +1,493 @@
+@@ -0,0 +1,613 @@
 +#include "global.h"
 +#include "dailyred.h"
++#include "characters.h"
++#include "data.h"
 +#include "party_menu.h"
 +#include "pokemon.h"
 +#include "random.h"
@@ -762,10 +781,11 @@ index 0000000..4b9a87f
 +
 +// Random team generator for Daily Red.
 +//
-+// Rules (first version; see "Team generation" in the project README):
-+//   - 6 different species out of the 386 Gen 1-3 Pokemon, whose base stat
-+//     totals add up to at least MIN_TEAM_BASE_STAT_TOTAL. 1 team in
-+//     LEGENDARY_TEAM_ODDS includes exactly one legendary; the rest have none.
++// Rules (see "Team generation" in the project README):
++//   - Daily play: one non-legendary species for each letter of the Wordle
++//     answer, in order, and one legendary in the last slot. Species repeat for
++//     repeated letters only if a distinct team cannot meet the stat minimum.
++//   - Practice/offline play: the original seeded random team generator.
 +//   - Level 100 with a random personality (so random nature, gender, ability
 +//     and the normal 1/8192 shiny chance), random IVs from MIN_TEAM_IV to 31,
 +//     and EVs focused on its two best stats (see AssignFocusedEVs), close to
@@ -974,6 +994,120 @@ index 0000000..4b9a87f
 +    // Put the legendary (if any) in a random party slot instead of the lead.
 +    slot = TeamRandom(rng) % PARTY_SIZE;
 +    SWAP(species[0], species[slot], temp);
++}
++
++static bool8 StartsWithLetter(u16 species, u8 letter)
++{
++    return IsEligibleSpecies(species) && !IsLegendary(species)
++        && gSpeciesNames[species][0] == CHAR_A + letter - 'a';
++}
++
++// Letters have disjoint species pools. For repeated letters, taking the best
++// unused species each time gives the exact highest possible total.
++static bool8 PickStrongestWordSpecies(u16 *team, const u8 *word, bool8 allowRepeats, u32 *total)
++{
++    u8 i;
++    u16 species, best, value, bestValue;
++
++    *total = 0;
++    for (i = 0; i < DAILYRED_WORD_LENGTH; i++)
++    {
++        best = SPECIES_NONE;
++        bestValue = 0;
++        for (species = 1; species < NUM_SPECIES; species++)
++        {
++            if (!StartsWithLetter(species, word[i])
++             || (!allowRepeats && IsSpeciesTaken(species, team, i)))
++                continue;
++            value = GetBaseStatTotal(species);
++            if (value > bestValue)
++            {
++                best = species;
++                bestValue = value;
++            }
++        }
++        if (best == SPECIES_NONE)
++            return FALSE;
++        team[i] = best;
++        *total += bestValue;
++    }
++    return TRUE;
++}
++
++// Reservoir sampling gives every allowed species for this letter equal odds.
++static u16 PickWordSpecies(u32 *rng, u8 letter, const u16 *taken, u8 count, bool8 allowRepeats)
++{
++    u16 species, chosen = SPECIES_NONE, matches = 0;
++
++    for (species = 1; species < NUM_SPECIES; species++)
++    {
++        if (!StartsWithLetter(species, letter)
++         || (!allowRepeats && IsSpeciesTaken(species, taken, count)))
++            continue;
++        matches++;
++        if (TeamRandom(rng) % matches == 0)
++            chosen = species;
++    }
++    return chosen;
++}
++
++static void PickWordTeamSpecies(u16 *species, u32 *rng, const u8 *word)
++{
++    u16 strongest[DAILYRED_WORD_LENGTH];
++    u16 viable[ARRAY_COUNT(sLegendaries)];
++    u32 maximum, total;
++    u8 viableCount = 0, i;
++    bool8 allowRepeats = FALSE;
++    s32 attempt;
++
++    if (!PickStrongestWordSpecies(strongest, word, FALSE, &maximum))
++        maximum = 0;
++    for (i = 0; i < ARRAY_COUNT(sLegendaries); i++)
++    {
++        if (maximum + GetBaseStatTotal(sLegendaries[i]) >= MIN_TEAM_BASE_STAT_TOTAL)
++            viable[viableCount++] = sLegendaries[i];
++    }
++    if (viableCount == 0)
++    {
++        allowRepeats = TRUE;
++        PickStrongestWordSpecies(strongest, word, TRUE, &maximum);
++        for (i = 0; i < ARRAY_COUNT(sLegendaries); i++)
++        {
++            if (maximum + GetBaseStatTotal(sLegendaries[i]) >= MIN_TEAM_BASE_STAT_TOTAL)
++                viable[viableCount++] = sLegendaries[i];
++        }
++    }
++    // A contrived five-letter input may make 2700 mathematically impossible.
++    // Keep the game playable with the strongest possible matching team then.
++    if (viableCount == 0)
++    {
++        u16 best = sLegendaries[0];
++        for (i = 1; i < ARRAY_COUNT(sLegendaries); i++)
++        {
++            if (GetBaseStatTotal(sLegendaries[i]) > GetBaseStatTotal(best))
++                best = sLegendaries[i];
++        }
++        memcpy(species, strongest, sizeof(strongest));
++        species[DAILYRED_WORD_LENGTH] = best;
++        return;
++    }
++
++    species[DAILYRED_WORD_LENGTH] = viable[TeamRandom(rng) % viableCount];
++    for (attempt = 0; attempt < MAX_TEAM_ATTEMPTS; attempt++)
++    {
++        total = GetBaseStatTotal(species[DAILYRED_WORD_LENGTH]);
++        for (i = 0; i < DAILYRED_WORD_LENGTH; i++)
++        {
++            species[i] = PickWordSpecies(rng, word[i], species, i, allowRepeats);
++            if (species[i] == SPECIES_NONE)
++                break;
++            total += GetBaseStatTotal(species[i]);
++        }
++        if (i == DAILYRED_WORD_LENGTH && total >= MIN_TEAM_BASE_STAT_TOTAL)
++            return;
++    }
++    // This is guaranteed to qualify whenever a viable legendary was found.
++    memcpy(species, strongest, sizeof(strongest));
 +}
 +
 +static void AddCandidateMove(u16 *moves, u8 *count, u16 move)
@@ -1216,7 +1350,7 @@ index 0000000..4b9a87f
 +    return TRUE;
 +}
 +
-+void DailyRed_GenerateTeam(struct Pokemon *party, u32 *rngState)
++void DailyRed_GenerateTeam(struct Pokemon *party, u32 *rngState, const u8 *word)
 +{
 +    u16 species[PARTY_SIZE];
 +    u8 i, attempt;
@@ -1224,7 +1358,10 @@ index 0000000..4b9a87f
 +    for (i = 0; i < PARTY_SIZE; i++)
 +        ZeroMonData(&party[i]);
 +
-+    PickTeamSpecies(species, rngState);
++    if (word != NULL)
++        PickWordTeamSpecies(species, rngState, word);
++    else
++        PickTeamSpecies(species, rngState);
 +    for (i = 0; i < PARTY_SIZE; i++)
 +    {
 +        for (attempt = 0; attempt < MAX_MON_ATTEMPTS; attempt++)

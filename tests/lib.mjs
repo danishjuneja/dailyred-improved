@@ -3,7 +3,7 @@
 // uses, pressing buttons, and reading game RAM out of a save state.
 import { chromium } from 'playwright-core';
 import { spawn, execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -50,15 +50,15 @@ export async function launchBrowser() {
 // default the game deals a new team after each battle; daily: true plays the
 // website's daily game instead (one battle, starting from wins / battles).
 // The emulator instance is exposed as window.emu.
-export async function bootGame(page, baseUrl, { seed, daily = false, wins = 0, battles = 0 } = {}) {
+export async function bootGame(page, baseUrl, { seed, daily = false, wins = 0, battles = 0, word = 'yodel' } = {}) {
   await page.goto(`${baseUrl}/__test__`);
   await page.setContent('<canvas id="screen" width="480" height="320" style="display:block"></canvas>');
-  await page.evaluate(async ({ seed, daily, wins, battles }) => {
+  await page.evaluate(async ({ seed, daily, wins, battles, word }) => {
     const { Nostalgist } = await import('/vendor/nostalgist.js');
     const { injectConfig } = await import('/rom-config.js');
     const { loadGameFiles } = await import('/game-files.js');
     const files = await loadGameFiles();
-    const rom = seed ? injectConfig(files.rom, { seed, daily, wins, battles }) : files.rom;
+    const rom = seed ? injectConfig(files.rom, { seed, daily, wins, battles, word }) : files.rom;
     window.emu = await Nostalgist.launch({
       core: 'mgba',
       element: document.getElementById('screen'),
@@ -67,7 +67,7 @@ export async function bootGame(page, baseUrl, { seed, daily = false, wins = 0, b
       resolveCoreWasm: () => files.coreWasm,
       retroarchConfig: { savestate_file_compression: false, savestate_thumbnail_enable: false },
     });
-  }, { seed, daily, wins, battles });
+  }, { seed, daily, wins, battles, word });
 }
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -128,12 +128,15 @@ export async function readMemory(page) {
   };
 }
 
-// Symbol addresses from the built ELF (needs the toolchain from setup-macos.sh).
+// Symbol addresses from the built ELF, or a symbol dump from a container build.
 let symbolCache;
 export function symbols() {
   if (symbolCache) return symbolCache;
   const nm = join(ROOT, '.toolchain/arm-none-eabi/bin/arm-none-eabi-nm');
-  const out = execFileSync(existsSync(nm) ? nm : 'arm-none-eabi-nm', [ELF], { encoding: 'utf8', maxBuffer: 64 << 20 });
+  const dump = join(ROOT, 'tests/output/rom-symbols.txt');
+  const out = existsSync(dump)
+    ? readFileSync(dump, 'utf8')
+    : execFileSync(existsSync(nm) ? nm : 'arm-none-eabi-nm', [ELF], { encoding: 'utf8', maxBuffer: 64 << 20 });
   symbolCache = new Map();
   for (const line of out.split('\n')) {
     const [addr, , name] = line.trim().split(/\s+/);

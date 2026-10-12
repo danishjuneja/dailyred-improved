@@ -47,3 +47,43 @@ test('static server confines requests to web and serves only GET/HEAD', async ()
     await rm(outside, { recursive: true, force: true });
   }
 });
+
+test('Wordle endpoint validates dates, checks the answer, and caches a successful day', async () => {
+  const date = new Date().toISOString().slice(0, 10);
+  let calls = 0;
+  const server = createWebServer({
+    fetchWordle: async (url) => {
+      calls++;
+      assert.equal(url, `https://www.nytimes.com/svc/wordle/v2/${date}.json`);
+      return new Response(JSON.stringify({ print_date: date, solution: 'yodel' }), { status: 200 });
+    },
+  });
+  try {
+    await new Promise((done) => server.listen(0, '127.0.0.1', done));
+    const url = `http://127.0.0.1:${server.address().port}/api/wordle/`;
+    assert.equal((await fetch(`${url}2026-99-99`)).status, 400);
+    assert.equal((await fetch(`${url}${date}`, { method: 'POST' })).status, 405);
+    const response = await fetch(`${url}${date}`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { date, word: 'yodel' });
+    assert.deepEqual(await (await fetch(`${url}${date}`)).json(), { date, word: 'yodel' });
+    assert.equal(calls, 1);
+  } finally {
+    await new Promise((done) => server.close(done));
+  }
+});
+
+test('Wordle endpoint fails closed for an invalid upstream answer', async () => {
+  const date = new Date().toISOString().slice(0, 10);
+  const server = createWebServer({
+    fetchWordle: async () => new Response(JSON.stringify({ print_date: date, solution: 'not-a-word' })),
+  });
+  try {
+    await new Promise((done) => server.listen(0, '127.0.0.1', done));
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/wordle/${date}`);
+    assert.equal(response.status, 502);
+    assert.match(await response.text(), /unavailable/);
+  } finally {
+    await new Promise((done) => server.close(done));
+  }
+});

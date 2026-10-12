@@ -5,6 +5,7 @@
 import { Nostalgist } from './vendor/nostalgist.js';
 import { loadGameFiles } from './game-files.js';
 import { injectConfig, parseSeed } from './rom-config.js';
+import { loadWordleWord } from './wordle.js';
 import { createGameLink, PHASE, RESULT } from './game-link.js';
 import {
   today, dailySeed, msUntilTomorrow, loadStats, resultFor, currentStreaks,
@@ -157,9 +158,11 @@ async function startRun() {
       return;
     }
     const seed = practiceSeed ?? dailySeed(runDate);
+    ui.loadingText.textContent = "Choosing today's team";
+    const word = practiceSeed ? null : await loadWordleWord(runDate);
     const rom = practiceSeed
       ? injectConfig(files.rom, { seed })
-      : injectConfig(files.rom, { seed, wins: stats.wins, battles: stats.wins + stats.losses, daily: true });
+      : injectConfig(files.rom, { seed, wins: stats.wins, battles: stats.wins + stats.losses, daily: true, word });
 
     ui.loadingText.textContent = 'Starting the emulator';
     ui.loadingDetail.textContent = '';

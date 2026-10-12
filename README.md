@@ -1,8 +1,8 @@
 # Daily Red
 
 A daily Pokémon battle in the browser, like Wordle: once a day you press
-**Play**, get the day's six random level 100 Pokémon from Generations 1–3
-(everyone gets the same team that day), and climb to RED at the top of the
+**Play**, get five level 100 Pokémon whose names follow that day's Wordle answer
+plus a legendary (everyone gets the same team that day), and climb to RED at the top of the
 mountain. You get one battle per day. Your wins, losses, win streak and daily
 play streak are kept in your browser.
 
@@ -55,7 +55,8 @@ port.
 To host it for others, run `docker build -t dailyred .` and publish the image's
 port 8080 through an HTTPS reverse proxy. The image listens on `0.0.0.0:8080`
 inside the container and runs as an unprivileged user. The build needs internet
-access, but the finished image serves all game assets locally.
+access. During daily play, the server also needs outbound access to the NYT
+Wordle endpoint; game assets are served locally.
 
 For Vercel hosting, see [the deployment guide](docs/deploy-vercel.md).
 
@@ -89,7 +90,8 @@ pret/pokefirered @ 037335f + patches/  ──make modern──▶  pokefirered_m
                                                               │ gzip (16 MB → 5.5 MB)
 web/ (static files)                                           ▼
   index.html + app.js ── fetch ──▶ game/dailyred.gba.gz, vendor/mgba_libretro.wasm
-        │  writes the day's seed + your record into the ROM bytes (rom-config.js)
+        │  fetches the day's Wordle answer through scripts/serve.mjs
+        │  writes the day's seed + answer + your record into the ROM bytes (rom-config.js)
         ▼
   Nostalgist.js ──▶ RetroArch + mGBA core (WebAssembly) ──▶ <canvas>
         ▲
@@ -105,17 +107,19 @@ built-in BIOS replacement, so no BIOS file is needed either.
 
 **Why Nostalgist + RetroArch's mGBA core:** it accepts the ROM as raw bytes
 (needed for the config below), exposes button presses and the emulator's
-memory to JavaScript, and doesn't need `SharedArrayBuffer`, so a plain static
-file server works without special headers. Everything loads from `web/vendor/`.
+memory to JavaScript, and doesn't need `SharedArrayBuffer` or special headers.
+Emulator assets load from `web/vendor/`; the Node server proxies Wordle answers.
 
 ### The daily game
 
-- **The day's team:** the seed is a hash of today's date in the player's own
-  time zone (`dailySeed` in `web/daily.js`), so everyone gets the same team
-  on the same calendar day, like Wordle.
+- **The day's team:** the site fetches the Wordle answer for today's date in
+  the player's own time zone through `/api/wordle/YYYY-MM-DD`. The seed is a
+  hash of that date (`dailySeed` in `web/daily.js`), so the five letter-based
+  picks and the legendary are fixed for everyone on that calendar day.
 - **Site → game:** the ROM contains a small struct, `gDailyRedRomConfig`: the
-  magic bytes `DAILYRED-CONF-V2`, then the seed, the player's wins and battles
-  so far, and a "daily" flag. Before booting, `web/rom-config.js` finds the
+  magic bytes `DAILYRED-CONF-V3`, then the seed, the player's wins and battles
+  so far, a "daily" flag, and the five answer letters. Before booting,
+  `web/rom-config.js` finds the
   magic bytes in the downloaded ROM and fills them in; no addresses are
   hard-coded on either side. The game uses the record for its "Record: x
   win(s) in x battle(s)" message.
@@ -181,7 +185,15 @@ not the byte-matching `agbcc` build, so it doesn't reproduce the retail ROM.
 (`gLevelUpLearnsets`, `CanMonLearnTMHM`, the TM/HM move table,
 `CreateMon`, `CalculateMonStats`):
 
-- **Species:** 6 different Pokémon from all 386 of Generations 1–3 whose
+- **Daily species:** the first five slots follow the Wordle answer in order:
+  `yodel` gives a Y, O, D, E and L Pokémon. The sixth slot is a seeded random
+  legendary or mythical Pokémon. The generator searches for a team with at
+  least 2700 combined base stats; it uses different species for repeated
+  letters when possible, and permits repeats for those letters if needed to
+  reach the minimum. If no matching combination can reach 2700, it uses the
+  strongest available combination. The word comes from the NYT endpoint at
+  play time; if that service is unavailable, the site asks the player to retry.
+- **Practice/standalone species:** 6 different Pokémon from all 386 of Generations 1–3 whose
   **base stat totals add up to at least 2700** (`MIN_TEAM_BASE_STAT_TOTAL`).
   **Legendaries are a 1-in-8 roll** (`LEGENDARY_TEAM_ODDS`): 1 team in 8 gets
   exactly one legendary or mythical Pokémon, in a random party slot, and the
@@ -368,11 +380,11 @@ instance and `dailyRed.stats` shows your saved stats.
 ## Running it locally
 
 Daily Red can also be played on your own computer. After the quick start,
-`web/` holds the whole site (about 9 MB), and `node scripts/serve.mjs` serves
+`web/` holds the game assets (about 9 MB), and `node scripts/serve.mjs` serves
 it at http://localhost:8080:
 
 ```
-web/index.html  app.js  daily.js  game-link.js  game-files.js  rom-config.js  style.css  favicon.svg  licenses.txt
+web/index.html  app.js  daily.js  wordle.js  game-link.js  game-files.js  rom-config.js  style.css  favicon.svg  licenses.txt
 web/vendor/     emulator (3.4 MB) + font
 web/game/       dailyred.gba.gz (5.5 MB), built on your machine
 ```
@@ -404,7 +416,7 @@ footer links to it.
   a few steps to the top.
 - **Stats live in the browser:** clearing site data resets them, they don't
   follow you to another device or browser, and anyone can edit their own
-  localStorage. That's fine for a casual daily game; there's no server.
+  localStorage. That's fine for a casual daily game; the server keeps no player records.
 - **Time zones:** the day changes at local midnight, so players in different
   time zones get each team at different times (as with Wordle).
 - **Soft reset** (A+B+Start+Select) is turned off in the daily game, so a
@@ -426,13 +438,13 @@ footer links to it.
 patches/pokefirered-dailyred.patch   all changes to pret/pokefirered
 scripts/setup-macos.sh               toolchain (xPack arm-none-eabi-gcc 14.2.1 + libpng)
 scripts/play.sh, scripts/play.cmd     one-command Docker build and local play
-Dockerfile                           Linux build and portable static server image
+Dockerfile                           Linux build and portable server image
 Dockerfile.vercel                    Vercel container build of the same game
 scripts/get-pokefirered.sh           pinned upstream checkout + patch
 scripts/save-patch.sh                pokefirered/ changes → patches/
 scripts/build-rom.sh                 make modern → web/game/dailyred.gba.gz
 scripts/fetch-vendor.sh              Nostalgist, mGBA core, font (pinned, checksummed)
-scripts/serve.mjs                    local static server
+scripts/serve.mjs                    local server and Wordle proxy
 web/                                 the website
 tests/                               headless browser tests and the teams tool
 ```

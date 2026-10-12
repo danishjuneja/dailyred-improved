@@ -3,12 +3,13 @@
 // abandoned battles, streaks, practice runs, the phone layout and the error
 // screen. Screenshots go to tests/output/site-*.png.
 import { mkdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   startServer, launchBrowser, sleep, press, getStatus, waitFor, startRedBattle, forceWin, forceLoss,
 } from './lib.mjs';
-import { readParty } from './party.mjs';
+import { readParty, teamBaseStatTotal, isLegendary } from './party.mjs';
 
-const OUT = new URL('./output/', import.meta.url).pathname;
+const OUT = fileURLToPath(new URL('./output/', import.meta.url));
 mkdirSync(OUT, { recursive: true });
 
 let failures = 0;
@@ -18,6 +19,12 @@ function check(ok, message) {
 }
 
 const DAY1 = '2026-10-11', DAY2 = '2026-10-12', DAY3 = '2026-10-13', DAY5 = '2026-10-15';
+const WORDS = { [DAY1]: 'yodel', [DAY2]: 'fizzy', [DAY3]: 'flame', [DAY5]: 'zzzzz' };
+const mockWordle = (context) => context.route('**/api/wordle/*', (route) => {
+  const date = new URL(route.request().url()).pathname.split('/').at(-1);
+  const word = WORDS[date];
+  return route.fulfill({ status: word ? 200 : 404, json: { date, word } });
+});
 const at = (date, time = '10:00:00') => new Date(`${date}T${time}`);
 
 const state = (page) => page.evaluate(() => document.querySelector('.app').dataset.state);
@@ -56,6 +63,7 @@ const server = await startServer();
 const browser = await launchBrowser();
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  await mockWordle(context);
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -83,7 +91,12 @@ try {
   await attach(page);
   const box = await page.locator('canvas').boundingBox();
   check(Math.round(box.width) === 720 && Math.round(box.height) === 480, `game screen is 720x480 on desktop (got ${box.width}x${box.height})`);
-  const team1 = JSON.stringify(readParty((await getStatus(page)).mem).party.map((m) => m.species));
+  const firstParty = readParty((await getStatus(page)).mem).party;
+  const team1 = JSON.stringify(firstParty.map((m) => m.species));
+  check(firstParty.slice(0, 5).every((m, i) => m.speciesName[0].toLowerCase() === WORDS[DAY1][i])
+    && isLegendary(firstParty[5]) && firstParty.slice(0, 5).every((m) => !isLegendary(m))
+    && teamBaseStatTotal(firstParty) >= 2700,
+  `daily team spells ${WORDS[DAY1].toUpperCase()}, ends in a legendary, and reaches 2700`);
 
   await startRedBattle(page);
   await sleep(1000);
@@ -102,6 +115,7 @@ try {
 
   // Same team for everyone today: a second browser gets the same Pokemon.
   const other = await browser.newContext();
+  await mockWordle(other);
   const otherPage = await other.newPage();
   await otherPage.clock.setFixedTime(at(DAY1, '22:00:00'));
   await otherPage.goto(server.url);
@@ -118,8 +132,12 @@ try {
   check(s.canPlay && s.winStreak === '1' && s.dayStreak === '1', `next day: Play is back, streaks kept (${statLine(s)})`);
   await page.click('#play');
   await attach(page);
-  const team2 = JSON.stringify(readParty((await getStatus(page)).mem).party.map((m) => m.species));
+  const secondParty = readParty((await getStatus(page)).mem).party;
+  const team2 = JSON.stringify(secondParty.map((m) => m.species));
   check(team2 !== team1, "a new day brings a new team");
+  check(secondParty.slice(0, 5).every((m, i) => m.speciesName[0].toLowerCase() === WORDS[DAY2][i])
+    && isLegendary(secondParty[5]) && teamBaseStatTotal(secondParty) >= 2700,
+  `repeated-letter team spells ${WORDS[DAY2].toUpperCase()} and reaches 2700`);
   await startRedBattle(page);
   await forceLoss(page);
   check(await finishDailyGame(page, 'site-loss'), 'after a loss the site closes the game and returns to the title card');
@@ -145,6 +163,13 @@ try {
   await sleep(800);
   s = await shown(page);
   check(s.canPlay && s.winStreak === '0' && s.dayStreak === '0' && s.wins === '1' && s.losses === '2', `missing a day resets the streaks (${statLine(s)})`);
+  await page.click('#play');
+  await attach(page);
+  const repeatParty = readParty((await getStatus(page)).mem).party;
+  check(repeatParty.slice(0, 5).every((m) => m.speciesName[0] === 'Z')
+    && new Set(repeatParty.slice(0, 5).map((m) => m.species)).size < 5
+    && isLegendary(repeatParty[5]) && teamBaseStatTotal(repeatParty) >= 2700,
+  'when distinct species cannot qualify, repeated-letter species may repeat');
 
   // Practice runs (?seed=) ignore the daily limit and never touch the stats.
   await page.clock.setFixedTime(at(DAY3));
@@ -162,6 +187,7 @@ try {
 
   // Phone: layout and touch controls.
   const phoneContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+  await mockWordle(phoneContext);
   const phone = await phoneContext.newPage();
   await phone.goto(server.url);
   await sleep(1000);
@@ -195,6 +221,7 @@ try {
 
   // A failed download shows the error card, and Try again recovers.
   const brokenContext = await browser.newContext();
+  await mockWordle(brokenContext);
   const broken = await brokenContext.newPage();
   await broken.route('**/game/dailyred.gba.gz', (route) => route.fulfill({ status: 404, body: 'missing' }));
   await broken.goto(server.url);

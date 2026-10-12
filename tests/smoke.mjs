@@ -6,6 +6,7 @@
 // Screenshots are written to tests/output/ for a visual check.
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   GAME_DIR, startServer, launchBrowser, bootGame, sleep, press, screenshot,
   getStatus, waitFor, walkTo, face, patchMemory, readVar, symbol, u16,
@@ -13,7 +14,7 @@ import {
 } from './lib.mjs';
 import { readParty, formatMon, validateTeam } from './party.mjs';
 
-const OUT = new URL('./output/', import.meta.url).pathname;
+const OUT = fileURLToPath(new URL('./output/', import.meta.url));
 mkdirSync(OUT, { recursive: true });
 
 function define(file, name) {
