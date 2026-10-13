@@ -23,7 +23,7 @@ WORKDIR /app
 COPY web ./web
 COPY --from=build /app/web/vendor ./web/vendor
 COPY --from=build /app/web/game ./web/game
-COPY scripts/serve.mjs ./scripts/serve.mjs
+COPY scripts/serve.mjs scripts/wordle-api.mjs scripts/http-headers.mjs ./scripts/
 USER node
 EXPOSE 8080
 CMD ["node", "scripts/serve.mjs"]
