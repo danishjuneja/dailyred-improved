@@ -17,7 +17,16 @@ RUN bash scripts/get-pokefirered.sh \
     && bash scripts/fetch-vendor.sh \
     && bash scripts/build-rom.sh
 
-FROM node:24-bookworm-slim
+FROM build AS vercel-build
+COPY web ./web
+COPY scripts/build-vercel.mjs scripts/wordle-api.mjs scripts/http-headers.mjs ./scripts/
+RUN node scripts/build-vercel.mjs
+
+# docker build --target vercel-export --output type=local,dest=.vercel .
+FROM scratch AS vercel-export
+COPY --from=vercel-build /app/.vercel/output /output
+
+FROM node:24-bookworm-slim AS standalone
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=8080
 WORKDIR /app
 COPY web ./web

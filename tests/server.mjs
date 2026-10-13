@@ -26,6 +26,10 @@ test('static server confines requests to web and serves only GET/HEAD', async ()
     assert.match(await normal.text(), /Daily Red/);
     assert.equal(normal.headers.get('x-content-type-options'), 'nosniff');
     assert.match(normal.headers.get('content-security-policy'), /object-src 'none'/);
+    const cached = await fetch(url, { headers: { 'If-None-Match': normal.headers.get('etag') } });
+    assert.equal(cached.status, 304);
+    assert.equal(await cached.text(), '');
+    assert.equal((await fetch(url, { headers: { 'If-None-Match': '"old-version"' } })).status, 200);
 
     const head = await fetch(`${url}/app.js`, { method: 'HEAD' });
     assert.equal(head.status, 200);

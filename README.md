@@ -335,7 +335,7 @@ come from FireRed's usual name-based formula and aren't configurable.
 
 If species names, stats or the legendary list change, run
 `node scripts/generate-species-data.mjs` and commit `web/species-data.js` too.
-Both container builds check that this catalogue matches the pinned ROM source.
+The Docker build checks that this catalogue matches the pinned ROM source.
 
 `pokefirered/`, `.toolchain/`, `web/vendor/` and `web/game/` are not tracked
 (see `.gitignore`); a clean checkout recreates them with the scripts above.
@@ -345,7 +345,9 @@ To play the ROM outside the browser, open
 `pokefirered/pokefirered_modern.gba` in mGBA or any GBA emulator. Without an
 injected seed it boots to the title screen; press Start.
 
-The website has no build step: plain HTML, CSS and ES modules in `web/`.
+Local development uses plain HTML, CSS and ES modules in `web/` without a frontend
+build step. Vercel deployment packages these files with content-addressed assets
+and a Wordle function; see [the deployment guide](docs/deploy-vercel.md).
 
 ## Testing and debugging
 
@@ -471,7 +473,8 @@ patches/pokefirered-dailyred.patch   all changes to pret/pokefirered
 scripts/setup-macos.sh               toolchain (xPack arm-none-eabi-gcc 14.2.1 + libpng)
 scripts/play.sh, scripts/play.cmd     one-command Docker build and local play
 Dockerfile                           Linux build and portable server image
-Dockerfile.vercel                    Vercel container build of the same game
+scripts/build-vercel.mjs             static Vercel output and cached game assets
+.github/workflows/vercel.yml         tested builds and Vercel deployment
 scripts/get-pokefirered.sh           pinned upstream checkout + patch
 scripts/save-patch.sh                pokefirered/ changes → patches/
 scripts/build-rom.sh                 make modern → web/game/dailyred.gba.gz

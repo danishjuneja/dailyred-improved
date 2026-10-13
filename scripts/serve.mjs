@@ -34,7 +34,8 @@ function inside(base, target) {
   return path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path);
 }
 
-export function createWebServer({ fetchWordle = fetch } = {}) {
+export function createWebServer({ fetchWordle = fetch, webRoot = root } = {}) {
+  const root = resolve(webRoot);
   const handleWordle = createWordleHandler({ fetchWordle });
 
   return createServer(async (req, res) => {
@@ -62,6 +63,16 @@ export function createWebServer({ fetchWordle = fetch } = {}) {
       }
       const info = await stat(actual);
       if (!info.isFile()) throw new Error('Not a file');
+      const etag = `W/"${info.size.toString(16)}-${info.mtimeMs.toString(16)}"`;
+      headers.ETag = etag;
+      // Generated Vercel output can also be previewed with this server.
+      if (url.pathname.startsWith('/_vercel/immutable/')) {
+        headers['Cache-Control'] = 'public, max-age=31536000, immutable';
+      }
+      if (req.headers['if-none-match']?.split(/\s*,\s*/).some((tag) => tag === '*' || tag.replace(/^W\//, '') === etag.slice(2))) {
+        res.writeHead(304, headers).end();
+        return;
+      }
       res.writeHead(200, {
         ...headers,
         'Content-Type': types[extname(actual)] || 'application/octet-stream',

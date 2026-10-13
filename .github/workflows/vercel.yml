@@ -1,0 +1,109 @@
+name: Vercel static deployment
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      production:
+        description: Deploy to the production domain (main only)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vercel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tests/package-lock.json
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build ROM, compressed assets and Wordle function
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          target: vercel-export
+          outputs: type=local,dest=.vercel
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Install browser test dependency
+        run: npm ci --ignore-scripts --prefix tests
+      - name: Verify HTTP behavior and deployment output
+        run: |
+          node tests/server.mjs
+          node tests/wordle-api.mjs
+          node tests/vercel.mjs
+      - name: Verify game loading and browser cache reuse
+        run: node tests/vercel-browser.mjs
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vercel-output
+          path: .vercel/output
+          include-hidden-files: true
+          retention-days: 7
+
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: ${{ (github.event_name == 'push' || inputs.production) && 'production' || 'preview' }}
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      PRODUCTION: ${{ github.event_name == 'push' || inputs.production }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Check deployment configuration
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          for name in VERCEL_ORG_ID VERCEL_PROJECT_ID VERCEL_TOKEN; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing GitHub Actions secret $name. See docs/deploy-vercel.md."
+              exit 1
+            fi
+          done
+          if [ "$PRODUCTION" = true ] && [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::Production deployments must run from main."
+            exit 1
+          fi
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: vercel-output
+          path: .vercel/output
+      - name: Install pinned Vercel CLI
+        run: npm install --global vercel@63.1.2
+      - name: Deploy prebuilt output
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          flags=()
+          target=preview
+          if [ "$PRODUCTION" = true ]; then
+            flags+=(--prod)
+            target=production
+          fi
+          vercel pull --yes --environment="$target" --token="$VERCEL_TOKEN"
+          vercel deploy --prebuilt --yes "${flags[@]}" --token="$VERCEL_TOKEN"

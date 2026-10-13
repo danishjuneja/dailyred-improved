@@ -35,7 +35,7 @@ async function download(onProgress) {
   return {
     rom: await gunzip(romGz),
     coreJs: new Blob([coreJs], { type: 'text/javascript' }),
-    coreWasm: new Blob([coreWasm], { type: 'application/wasm' }),
+    coreWasm: new Blob([await gunzip(coreWasm)], { type: 'application/wasm' }),
   };
 }
 
