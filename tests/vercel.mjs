@@ -38,11 +38,9 @@ test('prebuilt deployment serves content-addressed game files statically with on
   }
   const index = await readFile(join(OUTPUT, 'static/index.html'), 'utf8');
   assert.ok(index.includes(assets['game/red.png']));
-  assert.ok(index.includes(assets['vendor/pixelify-sans.woff2']));
   assert.ok(index.includes('analytics.js'));
   const app = await readFile(join(OUTPUT, 'static/app.js'), 'utf8');
   assert.ok(app.includes(`from '${assets['vendor/nostalgist.js']}'`));
-  assert.ok((await readFile(join(OUTPUT, 'static/style.css'), 'utf8')).includes(assets['vendor/pixelify-sans.woff2']));
   assert.ok(config.routes.some((route) => route.src && new RegExp(`^${route.src}$`).test('/index.html')
     && route.headers?.['Cache-Control'] === 'public, max-age=0, must-revalidate'));
   assert.equal(config.overrides[assets['vendor/mgba_libretro.wasm'].slice(1)].contentType, 'application/gzip');

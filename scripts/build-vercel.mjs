@@ -12,9 +12,9 @@ export const OUTPUT = join(ROOT, '.vercel', 'output');
 export const ASSETS = [
   'game/dailyred.gba.gz', 'game/red.png',
   'vendor/mgba_libretro.js', 'vendor/mgba_libretro.wasm',
-  'vendor/nostalgist.js', 'vendor/pixelify-sans.woff2',
+  'vendor/nostalgist.js',
 ];
-const LICENSES = ['vendor/nostalgist.LICENSE.txt', 'vendor/pixelify-sans.OFL.txt'];
+const LICENSES = ['vendor/nostalgist.LICENSE.txt'];
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
 

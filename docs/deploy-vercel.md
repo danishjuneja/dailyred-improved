@@ -61,7 +61,7 @@ build scripts, package them directly (this replaces the old output safely):
 node scripts/build-vercel.mjs
 ```
 
-A missing or empty ROM, emulator, font, sprite or required license makes packaging
+A missing or empty ROM, emulator, sprite or required license makes packaging
 fail with instructions. Local development still uses `node scripts/serve.mjs`.
 The default `docker build -t dailyred .` still builds the standalone Node server.
 
@@ -79,7 +79,7 @@ can use your interactive login.
 
 ## Cache and download behavior
 
-- ROM, WASM, emulator scripts, font and sprite use content-addressed URLs under
+- ROM, WASM, emulator scripts and sprite use content-addressed URLs under
   `/_vercel/immutable/`, with `Cache-Control: public, max-age=31536000, immutable`.
   Identical files retain their URL across releases. Vercel's immutable manifest
   also makes prior asset URLs available when someone leaves an older page open.
@@ -87,6 +87,8 @@ can use your interactive login.
   compressed ROM is approximately 5.47 MB. Both are unpacked in the browser;
   the emulator still receives ordinary WASM bytes. No CDN compression setting
   is required for these savings. The loader also handles HTTP-decoded gzip.
+- The interface uses readable system fonts with equal-width digits for stats
+  and the countdown. No web font download is needed.
 - HTML and the small application modules revalidate on navigation so updates
   reach players. The game binaries download only after Play. Browsers may evict
   their cache, and private browsing or a hard reload can require another download.

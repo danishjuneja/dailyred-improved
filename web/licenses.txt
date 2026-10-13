@@ -20,7 +20,3 @@ mGBA libretro core (vendor/mgba_libretro.js, vendor/mgba_libretro.wasm)
 Nostalgist.js (vendor/nostalgist.js)
   MIT License, see vendor/nostalgist.LICENSE.txt
   https://github.com/arianrhodsandlot/nostalgist
-
-Pixelify Sans (vendor/pixelify-sans.woff2)
-  SIL Open Font License 1.1, see vendor/pixelify-sans.OFL.txt
-  https://github.com/eifetx/Pixelify-Sans

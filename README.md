@@ -71,7 +71,7 @@ whole game from source.
 ```sh
 scripts/setup-macos.sh      # ARM cross-compiler + libpng into .toolchain/ (~1 GB, one time)
 scripts/get-pokefirered.sh  # pret/pokefirered at a pinned commit + patches/
-scripts/fetch-vendor.sh     # emulator, emulator core and font into web/vendor/
+scripts/fetch-vendor.sh     # emulator and emulator core into web/vendor/
 scripts/build-rom.sh        # builds the ROM, writes web/game/dailyred.gba.gz
 node scripts/serve.mjs      # open http://localhost:8080
 ```
@@ -419,7 +419,7 @@ it at http://localhost:8080:
 
 ```
 web/index.html  app.js  daily.js  wordle.js  team.js  species-data.js  game-link.js  game-files.js  rom-config.js  style.css  favicon.svg  licenses.txt
-web/vendor/     emulator (3.4 MB) + font
+web/vendor/     emulator (3.4 MB)
 web/game/       dailyred.gba.gz (5.5 MB), built on your machine
 ```
 
@@ -478,7 +478,7 @@ scripts/build-vercel.mjs             static Vercel output and cached game assets
 scripts/get-pokefirered.sh           pinned upstream checkout + patch
 scripts/save-patch.sh                pokefirered/ changes → patches/
 scripts/build-rom.sh                 make modern → web/game/dailyred.gba.gz
-scripts/fetch-vendor.sh              Nostalgist, mGBA core, font (pinned, checksummed)
+scripts/fetch-vendor.sh              Nostalgist and mGBA core (pinned, checksummed)
 scripts/serve.mjs                    local server and Wordle proxy
 scripts/generate-species-data.mjs   regenerate the browser species catalogue
 web/                                 the website
